@@ -194,7 +194,7 @@ npm run dev
 Android-пакет, а не обновление предыдущего.
 
 Actions → **«Build Android APK (TWA)»** → Run workflow → скачай `trener-app-apk` из
-Artifacts. Если домен деплоя не `trener-coach.vercel.app` — обнови `webManifestUrl` при
+Artifacts. Если домен деплоя не `trener-blue.vercel.app` — обнови `webManifestUrl` при
 запуске workflow и `package_name` в `public/.well-known/assetlinks.json`.
 
 ---

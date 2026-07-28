@@ -1,6 +1,6 @@
 name: Build Android APK (TWA)
 
-# Wraps the deployed web app (https://trener-coach.vercel.app) in a Trusted Web
+# Wraps the deployed web app (https://trener-blue.vercel.app) in a Trusted Web
 # Activity — a real, installable Android app that opens the live site. Run manually from
 # the Actions tab ("Run workflow"). Requires four repo secrets to be set first:
 #   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
@@ -12,7 +12,7 @@ on:
       webManifestUrl:
         description: "Full URL to the deployed app's manifest.json"
         required: false
-        default: "https://trener-coach.vercel.app/manifest.json"
+        default: "https://trener-blue.vercel.app/manifest.json"
       versionCode:
         description: "Android versionCode — must increase on every RuStore/Play upload"
         required: false

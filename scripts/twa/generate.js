@@ -44,7 +44,7 @@ function startStaticServer(rootDir) {
 
 async function main() {
   const webManifestUrl =
-    process.env.WEB_MANIFEST_URL || "https://trener-coach.vercel.app/manifest.json";
+    process.env.WEB_MANIFEST_URL || "https://trener-blue.vercel.app/manifest.json";
   const targetDir = path.resolve(process.env.TWA_DIR || "./android-twa");
   const packageId = process.env.TWA_PACKAGE_ID || "ru.trener.app";
   const keyAlias = process.env.ANDROID_KEY_ALIAS || "ball";
