@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { IntroParticles, StaggerTitle } from "@/components/app/intro-fx";
+import { BrandMark } from "@/components/app/brand-mark";
 
 // A real native-style launch screen — shown briefly every time the app is
 // cold-started (opened fresh, not on in-app navigation), not just once ever
@@ -59,11 +60,13 @@ export function AppSplash() {
           <IntroParticles />
 
           <motion.span
-            className="siri-orb relative h-20 w-20"
+            className="relative"
             initial={reduceMotion ? false : { scale: 0.35, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-          />
+          >
+            <BrandMark size={80} />
+          </motion.span>
 
           <motion.div
             className="relative z-10 mt-7"

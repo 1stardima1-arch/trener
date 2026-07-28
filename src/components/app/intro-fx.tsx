@@ -43,6 +43,47 @@ export function IntroParticles() {
   );
 }
 
+// Denser "glitter suspended in liquid" dust for the auth backdrop — more
+// numerous and smaller than IntroParticles, mixed white/warm-gold tones,
+// twinkling in place rather than drifting upward (glitter in fluid stays
+// roughly put, it doesn't rise like the intro's celebratory sparks).
+const SPARKLES = Array.from({ length: 40 }, (_, i) => {
+  const seed = i * 91.3;
+  const left = seed % 100;
+  const top = (seed * 2.3) % 100;
+  const size = 1.5 + (i % 3) * 0.8;
+  const delay = (i % 11) * 0.4;
+  const duration = 2.4 + (i % 6) * 0.5;
+  const warm = i % 5 === 0;
+  return { left, top, size, delay, duration, warm, key: i };
+});
+
+export function LiquidSparkles() {
+  const reduceMotion = useReducedMotion();
+  if (reduceMotion) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      {SPARKLES.map((s) => (
+        <motion.span
+          key={s.key}
+          className="absolute rounded-full"
+          style={{
+            left: `${s.left}%`,
+            top: `${s.top}%`,
+            width: s.size,
+            height: s.size,
+            background: s.warm ? "#e8c88a" : "#ffffff",
+          }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0, 0.8, 0] }}
+          transition={{ duration: s.duration, delay: s.delay, repeat: Infinity, repeatDelay: 1.6, ease: "easeInOut" }}
+        />
+      ))}
+    </div>
+  );
+}
+
 // Badge that "pops" in with an expanding ring pulse, then idles with a gentle
 // breathing loop — much more alive than a plain scale-in emoji.
 export function IntroBadge({ emoji }: { emoji: string }) {

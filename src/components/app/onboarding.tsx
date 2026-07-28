@@ -237,7 +237,7 @@ export function Onboarding({ needsSetup }: { needsSetup: boolean }) {
           )}
 
           {phase === "thresholds" && (
-            <StepCard key="thresholds" title="Уже знаешь свои пороги?" subtitle="Если проходил(а) степ-тест на лактат или ЧСС-тест — укажи результат, применим его сразу. Нет — просто пропусти, определим сами по данным устройств.">
+            <StepCard key="thresholds" title="Уже знаешь свои пороги?" subtitle="Если проходил(а) степ-тест на лактат или ЧСС-тест — укажи результат, применим его сразу. Нет — просто пропусти: рассчитаем аэробный/анаэробный порог и VO2max сами, по формулам спортивной науки и твоим данным (возраст, пол, вес, пульс) — устройство для этого не обязательно, а как только появятся данные с тренировок, оценка станет точнее.">
               <label className="flex w-full items-center gap-3 rounded-2xl bg-white/10 p-4 text-left backdrop-blur-sm">
                 <input type="checkbox" checked={hasKnownThresholds} onChange={(e) => setHasKnownThresholds(e.target.checked)} className="h-5 w-5" />
                 <span className="text-sm font-semibold">Да, есть результаты теста</span>

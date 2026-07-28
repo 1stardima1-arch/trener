@@ -577,43 +577,57 @@ body {
   50% { filter: drop-shadow(0 0 10px rgba(176, 107, 255, 0.55)); }
 }
 
-/* ---------- Auth pages: "AI is here" ambient backdrop ----------
-   A huge, heavily blurred version of the assistant orb's own gradient,
-   slowly rotating and breathing behind the login card — replaces
-   dreamy-hero-bg (+ its blobs/hill) on the auth pages specifically.
-   That treatment was authored for the light theme and needed constant
-   per-theme patching (a white "sun glare" pseudo-element in particular)
-   to not clash once dark became the default; this is dark-only by
-   design instead of trying to reconcile both. Two nested elements
-   because rotate and the breathing scale/opacity can't animate the same
-   `transform` property independently on one element. */
-.auth-ai-glow-wrap {
+/* ---------- Auth pages: black liquid backdrop ----------
+   Slow-moving, heavily blurred near-black blobs (reusing the blob-morph/
+   blob-drift organic-shape keyframes from the onboarding blobs below, just
+   recolored) so the surface itself reads as a dark liquid slowly folding
+   over itself, rather than a static gradient. A thin radial sheen (not a
+   rainbow conic glow — that read as generic-template rather than premium)
+   keeps it from going flat black, and the sparkle dust on top (see
+   .auth-sparkle in intro-fx) is what sells "glitter suspended in liquid".
+   Dark-only by design, same reasoning as the treatment this replaces. */
+.auth-liquid-wrap {
   position: absolute;
-  left: 50%;
-  top: 42%;
-  width: 150vmax;
-  height: 150vmax;
-  transform: translate(-50%, -50%);
-  animation: auth-ai-breathe 9s ease-in-out infinite;
+  inset: -10%;
+  overflow: hidden;
   pointer-events: none;
 }
-.auth-ai-glow-spin {
-  width: 100%;
-  height: 100%;
-  border-radius: 999px;
-  background: conic-gradient(from 40deg, #ff8a5c, #ff5f9e, #b06bff, #5a8dff, #64d8ff, #7dffb2, #ff8a5c);
-  filter: blur(90px);
-  animation: auth-ai-spin 46s linear infinite;
+.auth-liquid-sheen {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(30, 40, 40, 0.9), transparent 60%);
 }
-@keyframes auth-ai-spin {
-  to { transform: rotate(360deg); }
+.auth-liquid-blob {
+  position: absolute;
+  filter: blur(70px);
+  animation: blob-morph 16s ease-in-out infinite, blob-drift 26s ease-in-out infinite;
+  will-change: border-radius, transform;
 }
-@keyframes auth-ai-breathe {
-  0%, 100% { opacity: 0.36; transform: translate(-50%, -50%) scale(1); }
-  50% { opacity: 0.5; transform: translate(-50%, -50%) scale(1.08); }
+.auth-liquid-blob-1 {
+  left: -10%;
+  top: -8%;
+  width: 70vmax;
+  height: 70vmax;
+  background: radial-gradient(circle at 35% 35%, rgba(20, 40, 36, 0.9), rgba(5, 8, 10, 0.4) 70%);
+}
+.auth-liquid-blob-2 {
+  right: -20%;
+  bottom: -15%;
+  width: 60vmax;
+  height: 60vmax;
+  background: radial-gradient(circle at 60% 40%, rgba(12, 22, 30, 0.85), rgba(4, 6, 8, 0.3) 70%);
+  animation-delay: -6s, -10s;
+}
+.auth-liquid-blob-3 {
+  left: 30%;
+  top: 30%;
+  width: 45vmax;
+  height: 45vmax;
+  background: radial-gradient(circle at 50% 50%, rgba(24, 32, 26, 0.7), transparent 70%);
+  animation-delay: -11s, -18s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .auth-ai-glow-wrap, .auth-ai-glow-spin { animation: none; }
+  .auth-liquid-blob { animation: none; }
 }
 
 @keyframes siri-orb-pulse {

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Activity } from "lucide-react";
 import { Container } from "@/components/ui/card";
+import { BrandMark } from "@/components/app/brand-mark";
 
 export function SiteFooter() {
   return (
@@ -8,9 +8,7 @@ export function SiteFooter() {
       <Container className="flex flex-col items-start justify-between gap-8 sm:flex-row">
         <div>
           <div className="flex items-center gap-2 font-display text-lg font-bold">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full btn-gradient">
-              <Activity className="h-4 w-4" strokeWidth={2.5} />
-            </span>
+            <BrandMark size={32} />
             Тренер
           </div>
           <p className="mt-3 max-w-xs text-sm text-(--color-ink-soft)">

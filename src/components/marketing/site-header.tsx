@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { LinkButton } from "@/components/ui/button";
-import { Activity } from "lucide-react";
+import { BrandMark } from "@/components/app/brand-mark";
 
 const links = [
   { href: "/#features", label: "Возможности" },
@@ -13,9 +13,7 @@ export function SiteHeader() {
     <header className="sticky top-4 z-50 mx-auto w-full max-w-6xl px-4">
       <div className="flex items-center justify-between rounded-full border border-black/5 bg-white/80 px-4 py-2.5 shadow-(--shadow-soft) backdrop-blur-xl sm:px-6">
         <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full btn-gradient">
-            <Activity className="h-4 w-4" strokeWidth={2.5} />
-          </span>
+          <BrandMark size={32} />
           Тренер
         </Link>
 

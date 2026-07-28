@@ -7,8 +7,9 @@ import { MobileNav } from "@/components/app/mobile-nav";
 import { UserAvatar } from "@/components/app/user-avatar";
 import { Onboarding } from "@/components/app/onboarding";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { BrandMark } from "@/components/app/brand-mark";
 import { isAdminSession } from "@/lib/admin";
-import { Activity as ActivityIcon, LifeBuoy } from "lucide-react";
+import { LifeBuoy } from "lucide-react";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -36,9 +37,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           style={{ viewTransitionName: "app-shell-sidebar" } as React.CSSProperties}
         >
           <Link href="/app" className="flex items-center gap-2 px-1 font-display text-lg font-bold tracking-tight">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full btn-gradient">
-              <ActivityIcon className="h-4 w-4" strokeWidth={2.5} />
-            </span>
+            <BrandMark size={32} />
             ТРЕНЕР
           </Link>
 

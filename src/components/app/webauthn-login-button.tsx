@@ -49,7 +49,7 @@ export function WebAuthnLoginButton() {
         type="button"
         onClick={handleClick}
         disabled={busy}
-        className="flex w-full items-center justify-center gap-2.5 rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-5 py-3.5 text-sm font-semibold shadow-(--shadow-soft) transition-colors hover:border-black/20 disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-transparent px-5 py-3.5 text-sm font-semibold text-white transition-colors hover:border-white/30 disabled:cursor-not-allowed disabled:opacity-60"
       >
         <Fingerprint className="h-4.5 w-4.5" />
         {busy ? "Проверяю…" : "Войти по отпечатку"}

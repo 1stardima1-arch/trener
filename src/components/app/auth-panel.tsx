@@ -2,32 +2,37 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Mail, Check } from "lucide-react";
+import { ArrowRight, Mail } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AVATARS } from "@/lib/avatars";
 import { signUp } from "@/lib/actions/auth-signup";
 import { AuthHeadline } from "@/components/app/auth-headline";
 import { WebAuthnLoginButton } from "@/components/app/webauthn-login-button";
+import { GoogleGlyph } from "@/components/app/google-glyph";
+
+const fieldClass =
+  "w-full rounded-full border border-white/15 bg-white/[0.03] px-4 py-3.5 text-sm text-white placeholder:text-white/35 outline-none transition-colors focus:border-white/40";
 
 export function AuthPanel({
   hasEmail,
+  hasGoogle,
   redirectTo,
   signinAction,
   emailAction,
+  googleAction,
 }: {
   hasEmail: boolean;
+  hasGoogle: boolean;
   redirectTo: string;
   signinAction: (formData: FormData) => Promise<void>;
   emailAction: (formData: FormData) => Promise<void>;
+  googleAction: () => Promise<void>;
 }) {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
-  const [avatarKey, setAvatarKey] = useState<string | null>(null);
   const [signupError, setSignupError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function submitSignup(formData: FormData) {
     setSignupError(null);
-    if (avatarKey) formData.set("avatarKey", avatarKey);
     formData.set("redirectTo", redirectTo);
     startTransition(async () => {
       const result = await signUp(formData);
@@ -39,58 +44,64 @@ export function AuthPanel({
     <>
       <AuthHeadline mode={mode} />
 
-      <div className="mt-6 flex rounded-full bg-(--color-paper-dim) p-1 text-sm font-bold">
+      <div className="mt-7 flex gap-6 border-b border-white/10 text-sm font-bold">
         <button
           type="button"
           onClick={() => setMode("signin")}
           className={cn(
-            "flex-1 rounded-full py-2 transition-colors",
-            mode === "signin" ? "bg-(--color-surface) shadow-(--shadow-soft)" : "text-(--color-ink-soft)"
+            "relative pb-3 transition-colors",
+            mode === "signin" ? "text-white" : "text-white/40 hover:text-white/60"
           )}
         >
           Войти
+          {mode === "signin" && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-white" />}
         </button>
         <button
           type="button"
           onClick={() => setMode("signup")}
           className={cn(
-            "flex-1 rounded-full py-2 transition-colors",
-            mode === "signup" ? "bg-(--color-surface) shadow-(--shadow-soft)" : "text-(--color-ink-soft)"
+            "relative pb-3 transition-colors",
+            mode === "signup" ? "text-white" : "text-white/40 hover:text-white/60"
           )}
         >
           Регистрация
+          {mode === "signup" && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded-full bg-white" />}
         </button>
       </div>
 
+      {hasGoogle && (
+        <form action={googleAction} className="mt-7">
+          <button
+            type="submit"
+            className="flex w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-white px-5 py-3.5 text-sm font-bold text-black transition-opacity hover:opacity-90"
+          >
+            <GoogleGlyph className="h-4.5 w-4.5" />
+            {mode === "signup" ? "Регистрация через Google" : "Войти через Google"}
+          </button>
+        </form>
+      )}
+
+      {hasGoogle && (
+        <div className="my-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-white/30">
+          <span className="h-px flex-1 bg-white/10" />
+          или
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+      )}
+
       {mode === "signin" ? (
-        <div className="mt-6 space-y-3">
+        <div className={cn("space-y-3", !hasGoogle && "mt-7")}>
           <form action={signinAction} className="space-y-2.5">
-            <input
-              name="username"
-              placeholder="Ник"
-              required
-              autoComplete="username"
-              className="w-full rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-            />
-            <input
-              name="password"
-              type="password"
-              placeholder="Пароль"
-              required
-              autoComplete="current-password"
-              className="w-full rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-            />
+            <input name="username" placeholder="Ник" required autoComplete="username" className={fieldClass} />
+            <input name="password" type="password" placeholder="Пароль" required autoComplete="current-password" className={fieldClass} />
             <button
               type="submit"
-              className="btn-gradient press-spring flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-bold"
+              className="btn-gradient press-spring flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold"
             >
               Войти <ArrowRight className="h-4 w-4" />
             </button>
           </form>
-          <Link
-            href="/login/forgot-password"
-            className="block text-center text-xs font-semibold text-(--color-ink-soft) hover:text-(--color-brand-blue)"
-          >
+          <Link href="/login/forgot-password" className="block text-center text-xs font-semibold text-white/40 hover:text-white/70">
             Забыл(а) пароль?
           </Link>
 
@@ -98,22 +109,16 @@ export function AuthPanel({
 
           {hasEmail && (
             <>
-              <div className="my-5 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-(--color-ink-soft)">
-                <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+              <div className="my-5 flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-white/30">
+                <span className="h-px flex-1 bg-white/10" />
                 или
-                <span className="h-px flex-1 bg-black/10 dark:bg-white/10" />
+                <span className="h-px flex-1 bg-white/10" />
               </div>
               <form action={emailAction} className="flex gap-2">
-                <input
-                  name="email"
-                  type="email"
-                  placeholder="Почта"
-                  required
-                  className="flex-1 rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-                />
+                <input name="email" type="email" placeholder="Почта" required className={cn(fieldClass, "flex-1")} />
                 <button
                   type="submit"
-                  className="flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm font-semibold shadow-(--shadow-soft)"
+                  className="flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-transparent px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:border-white/30"
                 >
                   <Mail className="h-4 w-4" />
                   Ссылкой
@@ -123,79 +128,28 @@ export function AuthPanel({
           )}
         </div>
       ) : (
-        <form action={submitSignup} className="mt-6 space-y-2.5">
-          <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-(--color-ink-soft)">
-              Выбери аватар
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {AVATARS.map((a) => (
-                <button
-                  key={a.key}
-                  type="button"
-                  onClick={() => setAvatarKey(a.key)}
-                  className={cn(
-                    "relative flex h-10 w-10 items-center justify-center rounded-full text-lg transition-shadow",
-                    avatarKey === a.key
-                      ? "shadow-[0_0_0_3px_var(--color-brand-blue)]"
-                      : "shadow-[0_0_0_1px_rgba(11,11,18,0.08)]"
-                  )}
-                  style={{ background: a.gradient }}
-                  aria-label={a.key}
-                >
-                  {a.emoji}
-                  {avatarKey === a.key && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-(--color-brand-blue) text-white">
-                      <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
-          <input
-            name="username"
-            placeholder="Придумай ник"
-            required
-            autoComplete="username"
-            className="w-full rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-          />
-          <input
-            name="email"
-            type="email"
-            placeholder="Почта (для восстановления пароля)"
-            required
-            autoComplete="email"
-            className="w-full rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-          />
-          <input
-            name="password"
-            type="password"
-            placeholder="Придумай пароль"
-            required
-            autoComplete="new-password"
-            className="w-full rounded-full border border-black/10 dark:border-white/10 bg-(--color-surface) px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
-          />
-          {signupError && (
-            <p className="text-center text-xs font-semibold text-(--color-brand-pink)">{signupError}</p>
-          )}
+        <form action={submitSignup} className={cn("space-y-2.5", !hasGoogle && "mt-7")}>
+          <input name="username" placeholder="Придумай ник" required autoComplete="username" className={fieldClass} />
+          <input name="email" type="email" placeholder="Почта (для восстановления пароля)" required autoComplete="email" className={fieldClass} />
+          <input name="password" type="password" placeholder="Придумай пароль" required autoComplete="new-password" className={fieldClass} />
+          {signupError && <p className="text-center text-xs font-semibold text-(--color-brand-pink)">{signupError}</p>}
           <button
             type="submit"
             disabled={isPending}
-            className="btn-gradient press-spring flex w-full items-center justify-center gap-2 rounded-full py-3 text-sm font-bold disabled:opacity-60"
+            className="btn-gradient press-spring flex w-full items-center justify-center gap-2 rounded-full py-3.5 text-sm font-bold disabled:opacity-60"
           >
             {isPending ? "Создаю…" : "Создать аккаунт"} <ArrowRight className="h-4 w-4" />
           </button>
         </form>
       )}
 
-      <p className="mt-6 text-center text-xs leading-relaxed text-(--color-ink-soft)">
+      <p className="mt-7 text-center text-xs leading-relaxed text-white/35">
         Продолжая, ты соглашаешься с{" "}
-        <Link href="/terms" target="_blank" className="underline underline-offset-2">
+        <Link href="/terms" target="_blank" className="underline underline-offset-2 hover:text-white/60">
           пользовательским соглашением
         </Link>{" "}
         и{" "}
-        <Link href="/privacy" target="_blank" className="underline underline-offset-2">
+        <Link href="/privacy" target="_blank" className="underline underline-offset-2 hover:text-white/60">
           политикой конфиденциальности
         </Link>
         .
