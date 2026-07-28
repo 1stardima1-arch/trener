@@ -1,0 +1,177 @@
+name: Build Android APK (TWA)
+
+# Wraps the deployed web app (https://trener-coach.vercel.app) in a Trusted Web
+# Activity — a real, installable Android app that opens the live site. Run manually from
+# the Actions tab ("Run workflow"). Requires four repo secrets to be set first:
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS
+# (see the file sent alongside this workflow for the actual values).
+
+on:
+  workflow_dispatch:
+    inputs:
+      webManifestUrl:
+        description: "Full URL to the deployed app's manifest.json"
+        required: false
+        default: "https://trener-coach.vercel.app/manifest.json"
+      versionCode:
+        description: "Android versionCode — must increase on every RuStore/Play upload"
+        required: false
+        default: "1"
+      versionName:
+        description: "Android versionName (human-readable)"
+        required: false
+        default: "1.0.0"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install required Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36" "platforms;android-35" "build-tools;34.0.0"
+
+      - name: Install Bubblewrap tooling (isolated from the app's own dependencies)
+        run: npm install --no-save --prefix ./.bubblewrap-tools @bubblewrap/cli@1.24.1
+
+      - name: Decode signing keystore (falls back to a temporary key if the secret is bad)
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          mkdir -p android-twa
+          ALIAS="${KEY_ALIAS:-ball}"
+          echo "alias=$ALIAS" >> "$GITHUB_OUTPUT"
+
+          echo "Secret length as received: ${#KEYSTORE_B64} chars (expected 3612)"
+          CLEAN=$(printf '%s' "$KEYSTORE_B64" | tr -d ' \t\r\n')
+          echo "Secret length after stripping whitespace: ${#CLEAN} chars"
+          printf '%s' "$CLEAN" | base64 -d -i > android-twa/android-keystore 2>/dev/null || true
+
+          if [ -s android-twa/android-keystore ] && keytool -list -keystore android-twa/android-keystore -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "Using the persistent keystore from ANDROID_KEYSTORE_BASE64."
+            echo "usingFallback=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::ANDROID_KEYSTORE_BASE64 didn't decode to a valid keystore (or the password doesn't match it). Generating a TEMPORARY signing key so this build can still succeed — fix the secret and re-run before submitting to RuStore, since a future build with the real key won't be able to update an app installed from this one (Android requires the same signature to update in place)."
+            rm -f android-twa/android-keystore
+            keytool -genkeypair -v -keystore android-twa/android-keystore -alias "$ALIAS" \
+              -keyalg RSA -keysize 2048 -validity 10950 \
+              -storepass "temporary123456" -keypass "temporary123456" \
+              -dname "CN=Ball App (temporary), OU=Ball, O=Ball, L=Moscow, ST=Moscow, C=RU"
+            echo "usingFallback=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate TWA Android project
+        env:
+          NODE_PATH: ${{ github.workspace }}/.bubblewrap-tools/node_modules
+          WEB_MANIFEST_URL: ${{ inputs.webManifestUrl }}
+          TWA_PACKAGE_ID: ru.trener.app
+          TWA_DIR: android-twa
+          ANDROID_KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+          APP_VERSION_CODE: ${{ inputs.versionCode }}
+          APP_VERSION_NAME: ${{ inputs.versionName }}
+        run: node scripts/twa/generate.js
+
+      - name: Point Bubblewrap at the SDK/JDK GitHub Actions already installed
+        run: |
+          mkdir -p ~/.bubblewrap
+          cat > ~/.bubblewrap/config.json <<EOF
+          { "jdkPath": "${JAVA_HOME}", "androidSdkPath": "${ANDROID_HOME}" }
+          EOF
+
+      - name: Build & sign the APK
+        working-directory: android-twa
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ steps.keystore.outputs.usingFallback == 'true' && 'temporary123456' || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ steps.keystore.outputs.usingFallback == 'true' && 'temporary123456' || secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: node ${{ github.workspace }}/.bubblewrap-tools/node_modules/.bin/bubblewrap build --manifest=./twa-manifest.json
+
+      # Whether the installed app opens fullscreen (looks/feels like a real app) or shows
+      # Chrome's address bar on top (looks like "just a link to a website") is decided entirely
+      # by Digital Asset Link verification: Android must be able to prove the APK's signing
+      # certificate matches the one published at https://<domain>/.well-known/assetlinks.json.
+      # This step checks that for real, using the actual cert from this build and the *live*
+      # assetlinks.json (GitHub Actions has full internet access, unlike a typical sandbox), so
+      # the summary tells you definitively whether this build will render as a full app.
+      - name: Verify Digital Asset Links (fullscreen app vs. browser address bar)
+        env:
+          WEB_MANIFEST_URL: ${{ inputs.webManifestUrl }}
+          USED_FALLBACK: ${{ steps.keystore.outputs.usingFallback }}
+          KEYSTORE_PASSWORD: ${{ steps.keystore.outputs.usingFallback == 'true' && 'temporary123456' || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ steps.keystore.outputs.alias }}
+        run: |
+          ORIGIN=$(echo "$WEB_MANIFEST_URL" | sed -E 's#(https?://[^/]+).*#\1#')
+          ASSETLINKS_URL="$ORIGIN/.well-known/assetlinks.json"
+          ACTUAL_FP=$(keytool -list -v -keystore android-twa/android-keystore -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD" 2>/dev/null | grep "SHA256:" | head -1 | sed 's/.*SHA256: //')
+          echo "Signing cert SHA256 for this build: $ACTUAL_FP"
+
+          echo "### 🔍 Digital Asset Links ($ASSETLINKS_URL)" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$USED_FALLBACK" = "true" ]; then
+            echo "⚠️ Эта сборка подписана ВРЕМЕННЫМ ключом (см. предупреждение выше) — его сертификат заведомо не совпадает с assetlinks.json на сайте. **Приложение будет открываться с адресной строкой сверху, как обычный сайт**, пока не почините ANDROID_KEYSTORE_BASE64 и не пересоберёте." >> "$GITHUB_STEP_SUMMARY"
+          else
+            HTTP_CODE=$(curl -s -o /tmp/assetlinks_live.json -w "%{http_code}" "$ASSETLINKS_URL" || echo "000")
+            echo "GET $ASSETLINKS_URL -> HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" != "200" ]; then
+              echo "RESULT: UNREACHABLE — likely Vercel Deployment Protection"
+              {
+                echo "❌ assetlinks.json недоступен по этому адресу (HTTP $HTTP_CODE)."
+                echo ""
+                echo "Скорее всего на сайте ещё включена **Vercel Deployment Protection** — она блокирует любые запросы без входа в Vercel, включая проверку Google, не только твой браузер. Отключи её: Vercel → Settings → Deployment Protection → выключить (или ограничить только Preview Deployments)."
+                echo ""
+                echo "Пока это не исправлено, **приложение будет открываться как обычный сайт с адресной строкой**, а не как полноценное приложение."
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              LIVE_FP=$(jq -re '.[0].target.sha256_cert_fingerprints[0]' /tmp/assetlinks_live.json 2>/dev/null || echo "PARSE_ERROR")
+              echo "Fingerprint в живом assetlinks.json: $LIVE_FP"
+              if [ "$LIVE_FP" = "$ACTUAL_FP" ] && [ -n "$ACTUAL_FP" ]; then
+                echo "RESULT: MATCH — app will open fullscreen, no address bar"
+                echo "✅ Сертификат сборки совпадает с assetlinks.json на сайте — Digital Asset Links верификация должна пройти. Приложение откроется **без адресной строки, как полноценное приложение**. (Если после установки всё ещё видна адресная строка — подожди немного или переустанови APK: Android иногда кеширует результат старой проверки на несколько часов.)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "RESULT: MISMATCH — app will show the address bar"
+                {
+                  echo "❌ Сертификаты не совпадают — Digital Asset Links верификация провалится, приложение будет открываться с адресной строкой."
+                  echo ""
+                  echo "- Сертификат этой сборки: \`$ACTUAL_FP\`"
+                  echo "- Сертификат в живом assetlinks.json: \`$LIVE_FP\`"
+                  echo ""
+                  echo "Обнови \`sha256_cert_fingerprints\` в \`public/.well-known/assetlinks.json\` на первое значение, задеплой сайт и пересобери APK."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.keystore.outputs.usingFallback }}" = "true" ]; then
+            echo "### ⚠️ Собрано с ВРЕМЕННЫМ ключом подписи" >> "$GITHUB_STEP_SUMMARY"
+            echo "ANDROID_KEYSTORE_BASE64 не расшифровался в валидный keystore. Этот APK можно поставить и попробовать, но он подписан не тем ключом, что предназначен для RuStore. Почини секрет (см. android-keystore-secrets.txt) и запусти workflow заново перед публикацией." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### ✅ Собрано постоянным ключом подписи" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload APK (install this on your phone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: trener-app-apk
+          path: android-twa/app-release-signed.apk
+
+      - name: Upload AAB (for a future RuStore/Play submission)
+        uses: actions/upload-artifact@v4
+        with:
+          name: trener-app-aab
+          path: android-twa/app-release-bundle.aab

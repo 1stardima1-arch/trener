@@ -1,0 +1,690 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------- Auth.js -------------------------
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  avatarKey     String?
+  nameChangedAt DateTime?
+  // Username + password login, independent of the email-magic-link/OAuth
+  // providers below — an athlete can have either, both, or neither.
+  username      String?   @unique
+  passwordHash  String?
+  createdAt     DateTime  @default(now())
+
+  // Public profile / social
+  bio      String?
+  country  String?
+  isPublic Boolean @default(true)
+
+  accounts        Account[]
+  sessions        Session[]
+  authenticators  Authenticator[]
+  passwordResets  PasswordResetToken[]
+  supportMessages SupportMessage[]
+
+  athleteProfile     AthleteProfile?
+  nutritionProfile   NutritionProfile?
+  deviceConnections  DeviceConnection[]
+  activities         Activity[]
+  lactateTests       LactateTest[]
+  lactateReadings    LactateReading[]
+  thresholdSnapshots ThresholdSnapshot[]
+  dailyMetrics       DailyMetric[]
+  trainingPlans      TrainingPlan[]
+  planItems          PlanItem[]
+  mealPlanDays       MealPlanDay[]
+  nutritionLogs      NutritionLog[]
+  coachMessages      CoachMessage[]
+  insights           Insight[]
+  kudosGiven         Kudos[]
+
+  followers Follow[] @relation("following")
+  following Follow[] @relation("follower")
+
+  @@index([username])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// A registered fingerprint/Face ID/Windows Hello credential (WebAuthn).
+// credentialID/credentialPublicKey are stored base64url-encoded — Prisma
+// has no raw binary type that round-trips cleanly through Postgres here.
+model Authenticator {
+  id                  String   @id @default(cuid())
+  userId              String
+  credentialID        String   @unique
+  credentialPublicKey String
+  counter             Int
+  transports          String?
+  createdAt           DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("authenticators")
+}
+
+// Short-lived "forgot password" link. One-time use — consumed (deleted) the
+// moment the password is actually reset.
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// One thread per athlete (userId) — messages from the athlete and admin
+// replies interleaved, distinguished by fromAdmin.
+model SupportMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  fromAdmin Boolean  @default(false)
+  body      String   @db.Text
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("support_messages")
+}
+
+// ------------------------- Domain enums -------------------------
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+// Every place data can come from, kept as one enum since a single Activity
+// row, DailyMetric row, or LactateReading needs to say which of these
+// produced it — a device connection only ever exists for the three
+// autosync-capable providers (GARMIN_CONNECT, POLAR, ATHYX); FIT_FILE and
+// MANUAL never own a DeviceConnection row.
+enum DataSource {
+  GARMIN_CONNECT
+  FIT_FILE
+  POLAR
+  ATHYX
+  MANUAL
+  OTHER
+}
+
+enum ConnectionStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+  PENDING
+}
+
+enum PlanPhase {
+  BASE
+  BUILD
+  PEAK
+  TAPER
+  RACE
+  RECOVERY
+  MAINTENANCE
+  OFF_SEASON
+}
+
+enum PlanStatus {
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum PlanItemStatus {
+  PLANNED
+  COMPLETED
+  SKIPPED
+  MODIFIED
+}
+
+enum ActivityVisibility {
+  PRIVATE
+  FOLLOWERS
+  PUBLIC
+}
+
+// ------------------------- Athlete profile -------------------------
+
+// Onboarding output: sport, body, goals, availability, diet — everything the
+// plan/recovery/nutrition engines need that isn't a time-series measurement.
+// Split from User (rather than more columns on it, à la the old exam app)
+// because it's a wide, mostly-nullable "questionnaire" shape that's read as
+// one unit by the engines and edited as one unit on the profile page.
+model AthleteProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  primarySport    String // see src/lib/sports.ts SPORTS for the open, extensible list
+  secondarySports String[]  @default([])
+  sex             Sex?
+  birthDate       DateTime? @db.Date
+  heightCm        Float?
+  weightKg        Float?
+  bodyFatPercent  Float?
+
+  // Manually-entered baselines — used until the engine has enough device
+  // data of its own to supersede them (see ThresholdSnapshot).
+  restingHrManual Int?
+  maxHrManual     Int?
+  lthrManual      Int?
+  vo2maxManual    Float?
+  bloodPressureSystolic  Int?
+  bloodPressureDiastolic Int?
+
+  // Optional biochemical markers — self-reported from a recent blood panel,
+  // opt-in per the product brief ("биохимические данные по желанию"). Not
+  // consumed by any formula yet; surfaced to the AI coach's context so it
+  // can reason about them in conversation (see buildCoachContext).
+  ferritinNgMl       Float?
+  vitaminDNgMl       Float?
+  testosteroneNgDl   Float?
+  restingGlucoseMgDl Float?
+  biomarkerNotes     String? @db.Text
+
+  goalType        String? // RACE | GENERAL_FITNESS | WEIGHT_LOSS | PERFORMANCE | HEALTH | RETURN_FROM_INJURY
+  goalEventName   String?
+  goalEventDate   DateTime? @db.Date
+  goalNotes       String?   @db.Text
+  experienceYears Float?
+
+  // Minutes available to train per weekday, keyed "mon".."sun" — drives how
+  // aggressive the plan generator can be without overreaching the athlete.
+  weeklyAvailabilityMin Json?
+
+  sleepGoalHours  Float   @default(8)
+  typicalBedtime  String? // "HH:MM" local
+  typicalWakeTime String?
+
+  dietType          String? // omnivore | vegetarian | vegan | pescatarian | keto | halal | kosher | other
+  allergies         String?
+  dislikedFoods     String?
+  sportsNutritionOk Boolean @default(true) // open to gels/drink mixes/etc during sessions, not just whole food
+  mealsPerDay       Int     @default(4)
+
+  unitPreference String @default("METRIC") // METRIC | IMPERIAL
+
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("athlete_profiles")
+}
+
+// ------------------------- Devices -------------------------
+
+model DeviceConnection {
+  id       String           @id @default(cuid())
+  userId   String
+  provider DataSource
+  status   ConnectionStatus @default(PENDING)
+
+  externalUserId String? // Polar's x-user-id / Athyx account id
+
+  // OAuth2 (Polar). Tokens are encrypted with lib/crypto.ts before storage.
+  accessTokenEnc  String?   @db.Text
+  refreshTokenEnc String?   @db.Text
+  tokenExpiresAt  DateTime?
+  scope           String?
+
+  // API-key style (Athyx) or unofficial-login session (Garmin) — same
+  // encrypted-blob treatment, different contents per provider.
+  secretEnc String? @db.Text
+
+  // Provider-specific bookkeeping that doesn't deserve its own column
+  // (webhook subscription id, Garmin SSO cookie jar metadata, etc).
+  meta Json?
+
+  lastSyncedAt   DateTime?
+  lastSyncStatus String?
+  lastSyncError  String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@map("device_connections")
+}
+
+// ------------------------- Activities -------------------------
+
+model Activity {
+  id     String @id @default(cuid())
+  userId String
+
+  provider   DataSource
+  externalId String? // dedupe key from the source device/service
+
+  sport          String
+  name           String?
+  startedAt      DateTime
+  durationSec    Int
+  distanceM      Float?
+  elevationGainM Float?
+
+  avgHr            Int?
+  maxHr            Int?
+  avgPaceSecPerKm  Float?
+  avgPowerW        Float?
+  normalizedPowerW Float?
+  avgCadence       Int?
+  calories         Int?
+
+  trainingLoad      Float? // computed TRIMP (HR-based sports) or TSS-equivalent (power-based)
+  perceivedExertion Int? // athlete-entered RPE 1-10, fills the gap when there's no HR/power stream at all
+
+  // Downsampled time series used by the threshold/VO2max engines:
+  // [{ t: secondsFromStart, hr?, paceMps?, powerW?, altitudeM?, lactateMmol? }]
+  // A dedicated time-series table would scale better past a few thousand
+  // athletes, but for this MVP one JSON column per activity avoids a
+  // high-cardinality table while still giving the engines everything they
+  // need to run a Dmax/OBLA threshold detection over a step test.
+  samples Json?
+
+  isStepTest     Boolean            @default(false) // flagged (auto or manual) when this looks like a structured lactate/HR step test
+  sourceFileName String?
+  notes          String?            @db.Text
+  visibility     ActivityVisibility @default(PRIVATE)
+
+  createdAt DateTime @default(now())
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lactateTest LactateTest?
+  planItem    PlanItem?
+  kudos       Kudos[]
+
+  @@unique([userId, provider, externalId])
+  @@index([userId, startedAt])
+  @@index([visibility, startedAt])
+  @@map("activities")
+}
+
+model Kudos {
+  id         String   @id @default(cuid())
+  userId     String
+  activityId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, activityId])
+  @@map("kudos")
+}
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower  User @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followingId])
+  @@map("follows")
+}
+
+// ------------------------- Lactate -------------------------
+
+// A deliberate step test (ramp protocol) used to *derive* thresholds — as
+// opposed to LactateReading, which is one-off/continuous samples.
+model LactateTest {
+  id         String  @id @default(cuid())
+  userId     String
+  activityId String? @unique
+
+  testedAt DateTime
+  sport    String
+  source   DataSource // ATHYX | MANUAL | OTHER
+
+  // [{ step, durationSec, intensityHr?, intensityPaceSecPerKm?, intensityPowerW?, lactateMmol, rpe? }]
+  steps Json
+
+  computedLt1 Json? // { method, intensityMetric, intensityValue, lactateMmol }
+  computedLt2 Json?
+  notes       String? @db.Text
+
+  createdAt DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity? @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  @@index([userId, testedAt])
+  @@map("lactate_tests")
+}
+
+// Single lactate points — Athyx real-time stream during a normal session,
+// or a manual entry from any other meter (finger-prick or otherwise).
+model LactateReading {
+  id         String  @id @default(cuid())
+  userId     String
+  activityId String?
+
+  recordedAt   DateTime
+  lactateMmol  Float
+  hr           Int?
+  paceSecPerKm Float?
+  powerW       Float?
+  source       DataSource
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedAt])
+  @@map("lactate_readings")
+}
+
+// ------------------------- Thresholds -------------------------
+
+// A new row every time the engine recomputes — never overwritten in place —
+// so trend charts ("your LT2 pace over the season") and "why did my zones
+// change" both just read this table's history for the user+sport.
+model ThresholdSnapshot {
+  id     String @id @default(cuid())
+  userId String
+  sport  String
+
+  computedAt DateTime @default(now())
+
+  lt1Mmol         Float?
+  lt1Hr           Int?
+  lt1PaceSecPerKm Float?
+  lt1PowerW       Float?
+  lt2Mmol         Float?
+  lt2Hr           Int?
+  lt2PaceSecPerKm Float?
+  lt2PowerW       Float?
+
+  lthrBpm      Int?
+  maxHrBpm     Int?
+  restingHrBpm Int?
+
+  vo2max       Float?
+  vo2maxMethod String?
+
+  hrZones    Json? // [{ zone, label, minBpm, maxBpm }]
+  paceZones  Json?
+  powerZones Json?
+
+  confidence  Float? // 0..1 — how much data backed this estimate
+  method      String // e.g. DMAX_STEP_TEST | MODIFIED_DMAX | OBLA_4MMOL | REGRESSION_ENSEMBLE
+  explanation String @db.Text // plain-language "how we got this number"
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sport, computedAt])
+  @@map("threshold_snapshots")
+}
+
+// ------------------------- Daily metrics & recovery -------------------------
+
+// One row per athlete per calendar day — the Whoop-style "how ready am I
+// today" unit that both the dashboard and the plan engine key off of.
+model DailyMetric {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime @db.Date
+
+  hrvMs              Float?
+  restingHr          Int?
+  respiratoryRate    Float?
+  spo2               Float?
+  skinTempDeviationC Float?
+
+  sleepStart       DateTime?
+  sleepEnd         DateTime?
+  sleepDurationSec Int?
+  sleepStages      Json? // { deepSec, remSec, lightSec, awakeSec }
+  sleepScore       Int?
+  sleepDebtSec     Int?
+
+  bodyBattery Int?
+
+  recoveryScore     Int? // 0-100
+  recoveryBreakdown Json? // [{ factor, weight, contribution, note }] — the "why" behind the number
+  strain            Float? // 0-21-style cumulative daily strain from training load + HR time-in-zone
+
+  source      DataSource?
+  manualEntry Boolean     @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+  @@map("daily_metrics")
+}
+
+// ------------------------- Training plan -------------------------
+
+model TrainingPlan {
+  id     String @id @default(cuid())
+  userId String
+
+  goalType      String?
+  goalEventName String?
+  goalEventDate DateTime?  @db.Date
+  phase         PlanPhase  @default(BASE)
+  status        PlanStatus @default(ACTIVE)
+
+  startDate DateTime  @db.Date
+  endDate   DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items PlanItem[]
+
+  @@index([userId, status])
+  @@map("training_plans")
+}
+
+model PlanItem {
+  id     String @id @default(cuid())
+  planId String
+  userId String
+
+  date  DateTime @db.Date
+  sport String
+  title String
+
+  targetType        String // ENDURANCE_ZONE2 | THRESHOLD | VO2MAX | TEMPO | LONG | STRENGTH | MOBILITY | REST | RACE
+  description       String @db.Text
+  targetDurationSec Int?
+  targetLoad        Float?
+  // interval structure: [{ repeat, work: { durationSec, zone|paceTarget|powerTarget }, rest: {...} }]
+  structure         Json?
+
+  status PlanItemStatus @default(PLANNED)
+
+  activityId String? @unique // the completed Activity matched to this prescription, once done
+
+  explanation    String  @db.Text // why this exact session was prescribed today
+  adjustedFromId String? // previous PlanItem id this replaced, if the plan adapted
+  adjustReason   String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plan     TrainingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity Activity?    @relation(fields: [activityId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([planId, date])
+  @@map("plan_items")
+}
+
+// ------------------------- Nutrition -------------------------
+
+model NutritionProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+
+  tdeeKcal          Int?
+  proteinG          Int?
+  carbsG            Int?
+  fatG              Int?
+  carbPeriodization Boolean @default(true) // higher carb target on hard/long training days, lower on rest days
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("nutrition_profiles")
+}
+
+model MealPlanDay {
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime @db.Date
+
+  targetKcal     Int
+  targetProteinG Int
+  targetCarbsG   Int
+  targetFatG     Int
+
+  // [{ time, name, items: [{ food, qty, kcal, proteinG, carbsG, fatG }], kcal, notes }]
+  meals Json
+
+  aiNotes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@map("meal_plan_days")
+}
+
+model NutritionLog {
+  id     String @id @default(cuid())
+  userId String
+
+  loggedAt    DateTime @default(now())
+  mealName    String
+  description String   @db.Text
+  kcal        Int?
+  proteinG    Int?
+  carbsG      Int?
+  fatG        Int?
+  source      String   @default("MANUAL")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+  @@map("nutrition_logs")
+}
+
+// ------------------------- AI coach & insights -------------------------
+
+model CoachMessage {
+  id     String @id @default(cuid())
+  userId String
+
+  role        String // user | assistant
+  content     String @db.Text
+  // Snapshot of the metrics/plan state fed to the model for this reply —
+  // what makes "explain why" answers auditable instead of a black box.
+  contextJson Json?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("coach_messages")
+}
+
+// The browsable "why did things change" feed on the dashboard — one entry
+// per automated decision (recovery swing, plan adjustment, new thresholds).
+model Insight {
+  id     String @id @default(cuid())
+  userId String
+
+  date     DateTime @db.Date
+  type     String // RECOVERY_CHANGE | PLAN_ADJUSTED | SLEEP_DEBT | THRESHOLD_UPDATED | MILESTONE
+  title    String
+  body     String   @db.Text
+  severity String   @default("INFO") // INFO | POSITIVE | WARNING
+
+  relatedPlanItemId String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@map("insights")
+}

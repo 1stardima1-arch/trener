@@ -1,0 +1,132 @@
+<!--
+  Source for the Android native launch screen (scripts/twa/assets/splash/*.png), shown
+  while the TWA's WebView is still cold-starting — before the page itself can render the
+  in-app animated <AppSplash>. A static frame of that same design, so the two hand off
+  without a visual jump.
+
+  Portrait (1080x2340, ~9:19.5) rather than square: androidbrowserhelper's splash
+  ImageView scales the drawable to fit the screen preserving aspect ratio, so a square
+  source left visible letterboxing top/bottom on a real tall phone screen (looked "not
+  full screen", per real-device testing). A portrait source close to actual phone
+  proportions fills edge-to-edge instead.
+
+  To regenerate after a design change here, render this file at 1080x2340 (matching the
+  xxxhdpi density) and downscale proportionally to the other four densities Bubblewrap
+  expects:
+
+    node -e "
+      const { chromium } = require('playwright');
+      (async () => {
+        const browser = await chromium.launch();
+        const page = await browser.newPage({ viewport: { width: 1080, height: 2340 } });
+        await page.goto('file://' + require('path').resolve('scripts/twa/splash-source.html'));
+        await page.screenshot({ path: '/tmp/splash-master.png' });
+        await browser.close();
+      })();
+    "
+    node -e "
+      const sharp = require('sharp');
+      // Same proportions Bubblewrap uses for its own icon densities (mdpi = 1/4 of
+      // xxxhdpi, hdpi = 3/8, xhdpi = 1/2, xxhdpi = 3/4), applied to 1080x2340 instead
+      // of forcing a square.
+      const scales = { mdpi: 0.25, hdpi: 0.375, xhdpi: 0.5, xxhdpi: 0.75, xxxhdpi: 1 };
+      Promise.all(Object.entries(scales).map(([name, s]) =>
+        sharp('/tmp/splash-master.png')
+          .resize(Math.round(1080 * s), Math.round(2340 * s))
+          .toFile(\`scripts/twa/assets/splash/\${name}.png\`)
+      ));
+    "
+
+  generate.js copies these onto the generated project's drawable-*/splash.png at build time.
+-->
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@800;900&family=Manrope:wght@500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 1080px;
+    height: 2340px;
+    overflow: hidden;
+  }
+
+  .card {
+    position: relative;
+    width: 1080px;
+    height: 2340px;
+    background:
+      radial-gradient(45% 30% at 24% 20%, rgba(90,141,255,0.32), transparent 72%),
+      radial-gradient(45% 30% at 76% 82%, rgba(176,107,255,0.28), transparent 72%),
+      #0b0b14;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Manrope', sans-serif;
+    overflow: hidden;
+  }
+
+  .dot {
+    position: absolute;
+    border-radius: 50%;
+    background: #fff;
+  }
+
+  .orb {
+    position: relative;
+    width: 220px;
+    height: 220px;
+    border-radius: 999px;
+    background: conic-gradient(from 40deg, #ff8a5c, #ff5f9e, #b06bff, #5a8dff, #64d8ff, #7dffb2, #ff8a5c);
+    box-shadow: 0 0 90px rgba(120, 130, 255, 0.35);
+  }
+  .orb::after {
+    content: "";
+    position: absolute;
+    inset: 18%;
+    border-radius: inherit;
+    background: radial-gradient(circle at 38% 32%, rgba(255,255,255,0.95), rgba(255,255,255,0.25) 65%, transparent);
+    filter: blur(1px);
+  }
+
+  h1 {
+    font-family: 'Unbounded', sans-serif;
+    font-weight: 800;
+    font-size: 92px;
+    color: #ffffff;
+    margin-top: 46px;
+    letter-spacing: 0.5px;
+  }
+
+  p {
+    margin-top: 18px;
+    font-size: 30px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.6);
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="dot" style="left:16%;top:10%;width:6px;height:6px;opacity:0.7"></div>
+    <div class="dot" style="left:80%;top:7%;width:8px;height:8px;opacity:0.5"></div>
+    <div class="dot" style="left:12%;top:22%;width:5px;height:5px;opacity:0.5"></div>
+    <div class="dot" style="left:88%;top:20%;width:6px;height:6px;opacity:0.45"></div>
+    <div class="dot" style="left:20%;top:80%;width:5px;height:5px;opacity:0.6"></div>
+    <div class="dot" style="left:78%;top:83%;width:7px;height:7px;opacity:0.55"></div>
+    <div class="dot" style="left:10%;top:70%;width:5px;height:5px;opacity:0.4"></div>
+    <div class="dot" style="left:90%;top:68%;width:6px;height:6px;opacity:0.5"></div>
+    <div class="dot" style="left:50%;top:6%;width:5px;height:5px;opacity:0.4"></div>
+    <div class="dot" style="left:46%;top:92%;width:6px;height:6px;opacity:0.45"></div>
+
+    <div class="orb"></div>
+    <h1>Тренер</h1>
+    <p>ИИ-тренер для атлетов</p>
+  </div>
+</body>
+</html>

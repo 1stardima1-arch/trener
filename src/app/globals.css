@@ -1,0 +1,730 @@
+@import "tailwindcss";
+
+/* Manual (not just OS-preference) dark mode: toggling the `.dark` class on
+   <html> is what flips `dark:` utilities, driven by ThemeToggle + a
+   pre-hydration inline script (see layout.tsx) that reads localStorage
+   before first paint so there's no flash of the wrong theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --font-display: var(--font-unbounded);
+  --font-sans: var(--font-manrope);
+
+  --color-ink: #0b0b12;
+  --color-ink-soft: #4a4a58;
+  --color-paper: #faf9f6;
+  --color-paper-dim: #f1efe9;
+  --color-surface: #ffffff;
+
+  --color-brand-blue: #4f6bff;
+  --color-brand-violet: #8b5cf6;
+  --color-brand-pink: #ec4899;
+  --color-brand-green: #22c55e;
+  --color-brand-amber: #f59e0b;
+
+  --color-sky-1: #dceafe;
+  --color-sky-2: #eef2ff;
+  --color-grass-1: #dff3df;
+  --color-grass-2: #c3ecc6;
+
+  /* Recharts grid lines only — not used by any Tailwind utility, referenced
+     directly as a color string from src/lib/chart-colors.ts. */
+  --color-chart-grid: #e8e6e0;
+
+  --radius-xs: 10px;
+  --radius-sm: 16px;
+  --radius-md: 22px;
+  --radius-lg: 28px;
+  --radius-xl: 36px;
+  --radius-pill: 999px;
+
+  --shadow-soft: 0 2px 8px rgba(11, 11, 18, 0.04), 0 12px 32px rgba(11, 11, 18, 0.06);
+  --shadow-lift: 0 8px 24px rgba(11, 11, 18, 0.08), 0 24px 64px rgba(11, 11, 18, 0.1);
+  --shadow-glow: 0 0 0 1px rgba(79, 107, 255, 0.08), 0 16px 40px rgba(79, 107, 255, 0.18);
+}
+
+:root {
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+}
+
+html {
+  scroll-behavior: smooth;
+  /* Kills the browser's rubber-band bounce at the top/bottom of the page —
+     that bounce is one of the strongest "you're in a browser tab" tells,
+     since native/standalone apps don't do it. */
+  overscroll-behavior-y: none;
+  /* Restricts touch panning to vertical only, at the gesture level rather
+     than by clipping overflow — an earlier attempt used overflow-x: hidden
+     here, which made real Android WebView fall back to slow main-thread
+     scrolling instead of the fast compositor path. touch-action doesn't
+     touch the box/compositing model at all, so it blocks the sideways
+     drag (any card list could be dragged left/right and stay shifted,
+     like it was never a fixed native layout) without that cost. */
+  touch-action: pan-y;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  overscroll-behavior-y: none;
+  touch-action: pan-y;
+}
+
+/* @theme inline registers these as plain CSS custom properties on :root,
+   so redefining them here under .dark cascades into every utility that
+   reads them (bg-(--color-paper), text-(--color-ink-soft), ...) without
+   needing a dark: variant on each usage site individually. */
+/* True near-black, flat-card look (WHOOP-style) rather than the airy
+   "liquid glass" dark mode this design system started from — a wearable
+   readiness dashboard reads as premium when it's dense and matte, not
+   glassy; glass panels are kept only for chrome that floats over content
+   (nav bars, the AI panel), not for the data cards themselves. */
+:root.dark {
+  --color-ink: #f5f5f7;
+  --color-ink-soft: #8b8b93;
+  --color-paper: #000000;
+  --color-paper-dim: #0d0d10;
+  --color-surface: #131316;
+
+  --color-sky-1: #1c2340;
+  --color-sky-2: #191c33;
+  --color-grass-1: #163524;
+  --color-grass-2: #1d4430;
+  --color-chart-grid: rgba(255, 255, 255, 0.08);
+
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+  --shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.45), 0 24px 64px rgba(0, 0, 0, 0.55);
+  --shadow-glow: 0 0 0 1px rgba(79, 107, 255, 0.16), 0 16px 40px rgba(79, 107, 255, 0.28);
+}
+
+.font-display {
+  font-family: var(--font-display), var(--font-sans), system-ui, sans-serif;
+}
+
+/* ---------- reusable design primitives ---------- */
+
+.pill-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+  padding: 0.4rem 1rem 0.4rem 0.4rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.gradient-text {
+  background: linear-gradient(90deg, var(--color-brand-blue), var(--color-brand-violet) 55%, var(--color-brand-pink));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.btn-gradient {
+  background: linear-gradient(135deg, var(--color-brand-blue), var(--color-brand-violet));
+  color: white;
+  box-shadow: var(--shadow-glow);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.btn-gradient:active {
+  transform: translateY(0px) scale(0.98);
+}
+
+/* glassy look without backdrop-filter: cards are numerous, and dozens of live
+   blur layers is exactly what makes scrolling/animation jank on mid phones */
+.card-surface {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(255, 255, 255, 0.88));
+  border-radius: var(--radius-lg);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--shadow-soft);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  transition: transform 0.45s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.45s ease;
+}
+
+.dark .card-surface {
+  background: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Hover-only lift effects — gated to real pointer devices. On touch, :hover
+   fires on tap and then sticks until the next tap elsewhere, which on a
+   phone reads as cards randomly staying "raised"/wobbly rather than settling
+   back down, especially with several card-surface elements in one list. */
+@media (hover: hover) and (pointer: fine) {
+  .btn-gradient:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 28px rgba(79, 107, 255, 0.32);
+  }
+  .card-surface:hover {
+    transform: translateY(-2px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), var(--shadow-lift);
+  }
+  .dark .card-surface:hover {
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+.dreamy-hero-bg {
+  position: relative;
+  background:
+    radial-gradient(60% 45% at 20% 8%, #fff7e0 0%, rgba(255, 247, 224, 0) 60%),
+    radial-gradient(50% 40% at 85% 5%, #ffe4f1 0%, rgba(255, 228, 241, 0) 60%),
+    linear-gradient(180deg, #eaf2ff 0%, #f4f0ff 38%, #eef7ec 72%, #dff0e0 100%);
+  overflow: hidden;
+}
+
+.dreamy-hero-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 70%);
+  background-size: 40% 40%;
+  background-repeat: no-repeat;
+  background-position: 60% 20%;
+  opacity: 0.8;
+  pointer-events: none;
+  animation: drift-a 16s ease-in-out infinite;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(40px);
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.blob-blue {
+  background: radial-gradient(circle, #c7d2fe, transparent 70%);
+  width: 40vw;
+  height: 40vw;
+  top: -10%;
+  left: -8%;
+  animation: drift-a 18s ease-in-out infinite;
+}
+
+.blob-pink {
+  background: radial-gradient(circle, #fbcfe8, transparent 70%);
+  width: 32vw;
+  height: 32vw;
+  bottom: -6%;
+  right: -6%;
+  animation: drift-b 14s ease-in-out infinite;
+}
+
+.blob-green {
+  background: radial-gradient(circle, #bbf7d0, transparent 70%);
+  width: 26vw;
+  height: 26vw;
+  top: 30%;
+  right: 10%;
+  animation: drift-a 20s ease-in-out infinite reverse;
+}
+
+/* Warm fourth blob — a purely cool (blue/pink/green) palette reads a little
+   clinical on the dark theme; a soft amber glow low on the screen is what
+   makes the ambient field feel warm/cozy instead of just colorful. */
+.blob-amber {
+  background: radial-gradient(circle, #fde68a, transparent 70%);
+  width: 30vw;
+  height: 30vw;
+  bottom: 12%;
+  left: 6%;
+  animation: drift-b 22s ease-in-out infinite reverse;
+}
+
+@keyframes drift-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(3%, 4%) scale(1.06); }
+}
+
+@keyframes drift-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-4%, -3%) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dreamy-hero-bg::before,
+  .blob-blue,
+  .blob-pink,
+  .blob-green,
+  .blob-amber {
+    animation: none;
+  }
+}
+
+.hill {
+  position: absolute;
+  bottom: -10%;
+  left: -10%;
+  right: -10%;
+  height: 40%;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(180deg, var(--color-grass-1), var(--color-grass-2));
+}
+
+.dark .dreamy-hero-bg {
+  background:
+    radial-gradient(60% 45% at 20% 8%, rgba(79, 107, 255, 0.16) 0%, transparent 60%),
+    radial-gradient(50% 40% at 85% 5%, rgba(236, 72, 153, 0.13) 0%, transparent 60%),
+    linear-gradient(180deg, #0e0e18 0%, #0c0c16 38%, #0a0e12 72%, #0a120e 100%);
+}
+
+/* ::before's white "sun glare" was tuned for the light theme's pastel
+   background — at dark-mode opacity/contrast it reads as a stray bright
+   patch drifting across the screen instead of a glare, since dark mode
+   already gets its glow from the two radial-gradients above. */
+.dark .dreamy-hero-bg::before {
+  background-image: radial-gradient(circle, rgba(120, 145, 255, 0.28) 0%, rgba(120, 145, 255, 0) 70%);
+  opacity: 0.5;
+}
+
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---------- iOS-style Liquid Glass ---------- */
+
+@property --siri-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.liquid-glass {
+  /* No forced `position` here on purpose: this file's custom classes sit
+     outside Tailwind's cascade layers, so an unconditional `relative` here
+     would always beat a `fixed`/`sticky` utility class on the same element
+     (unlayered CSS wins over @layer'd utilities regardless of source
+     order) — that silently broke the fixed mobile nav and the sticky
+     sidebar. Every current usage already sets its own position utility
+     (fixed/sticky), which is enough of a positioning context for
+     .glass-sheen's ::after pseudo-element too. */
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.48));
+  -webkit-backdrop-filter: blur(12px) saturate(1.5);
+  backdrop-filter: blur(12px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+    0 2px 8px rgba(11, 11, 18, 0.05),
+    0 16px 40px rgba(11, 11, 18, 0.09);
+}
+
+.dark .liquid-glass {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2),
+    0 2px 8px rgba(0, 0, 0, 0.25),
+    0 16px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* A brighter, more saturated take on .liquid-glass for the one piece of
+   chrome that's on screen 100% of the time (the bottom tab bar) — heavier
+   blur and a hint of brand-color tint so it reads as "glass over something
+   colorful" rather than plain frosted white/black, plus a stronger glow so
+   it lifts off the page instead of blending into it. Layer it after
+   .liquid-glass on the same element (same specificity, later wins) so it
+   only overrides what needs to be brighter.
+   The background layer is deliberately fairly OPAQUE, not just blurred —
+   this bar sits right on top of bright gradient CTA cards, and a high
+   saturate() with a mostly-transparent base amplifies whatever color is
+   behind it (first version washed the tab labels out completely against
+   the blue "продолжить подготовку" card). Keeping the panel's own tint
+   dominant is what makes it read as "glass", not "a window". */
+.liquid-glass-vivid {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(219, 227, 255, 0.62));
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  backdrop-filter: blur(28px) saturate(1.6);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.7),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.15),
+    0 6px 20px rgba(79, 107, 255, 0.16),
+    0 24px 56px rgba(11, 11, 18, 0.16);
+}
+
+.dark .liquid-glass-vivid {
+  background: linear-gradient(135deg, rgba(32, 34, 62, 0.74), rgba(46, 27, 76, 0.68));
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.16),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3),
+    0 6px 24px rgba(79, 107, 255, 0.2),
+    0 24px 56px rgba(0, 0, 0, 0.5);
+}
+
+/* passing specular reflection — the "mirror" sheen of liquid glass.
+   Implemented as a transform-only animation (GPU compositor, no repaints). */
+.glass-sheen {
+  overflow: hidden;
+}
+.glass-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 55%;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent,
+    rgba(255, 255, 255, 0.45) 45%,
+    rgba(255, 255, 255, 0.1) 60%,
+    transparent
+  );
+  transform: translateX(-130%) skewX(-16deg);
+  animation: glass-sheen-pass 8s ease-in-out infinite 1.5s;
+  will-change: transform;
+}
+
+@keyframes glass-sheen-pass {
+  0% { transform: translateX(-130%) skewX(-16deg); }
+  24% { transform: translateX(330%) skewX(-16deg); }
+  100% { transform: translateX(330%) skewX(-16deg); }
+}
+
+/* spring-like press feedback, iOS style */
+.press-spring {
+  transition: transform 0.35s cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+.press-spring:active {
+  transform: scale(0.96);
+}
+
+/* ---------- Siri / Apple Intelligence edge glow ---------- */
+
+.siri-glow {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+}
+
+.siri-glow::before,
+.siri-glow::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 26px;
+  padding: 4px;
+  background: conic-gradient(
+    from var(--siri-angle),
+    #ff8a5c,
+    #ff5f9e,
+    #b06bff,
+    #5a8dff,
+    #64d8ff,
+    #7dffb2,
+    #ff8a5c
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: siri-rotate 1.6s linear infinite;
+}
+
+/* wide blurred copy underneath = the AI aura bleeding inward */
+.siri-glow::after {
+  padding: 16px;
+  filter: blur(14px);
+  opacity: 0.8;
+}
+
+@keyframes siri-rotate {
+  to { --siri-angle: 360deg; }
+}
+
+/* ambient color field behind the app so glass panels have something to refract */
+.app-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  pointer-events: none;
+  overflow: hidden;
+}
+.app-ambient .blob {
+  opacity: 0.75;
+}
+
+/* ---------- Onboarding (How We Feel-style squishy blobs) ---------- */
+
+.blob-morph {
+  background: rgba(255, 255, 255, 0.16);
+  animation: blob-morph 14s ease-in-out infinite, blob-drift 22s ease-in-out infinite;
+  will-change: border-radius, transform;
+}
+.blob-morph-2 {
+  animation-delay: -5s, -8s;
+  background: rgba(255, 255, 255, 0.1);
+}
+.blob-morph-3 {
+  animation-delay: -9s, -15s;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+@keyframes blob-morph {
+  0%, 100% { border-radius: 58% 42% 55% 45% / 48% 60% 40% 52%; }
+  25% { border-radius: 45% 55% 40% 60% / 60% 42% 58% 40%; }
+  50% { border-radius: 60% 40% 58% 42% / 42% 55% 45% 58%; }
+  75% { border-radius: 42% 58% 45% 55% / 55% 45% 60% 40%; }
+}
+
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  33% { transform: translate(4%, -5%) rotate(8deg) scale(1.06); }
+  66% { transform: translate(-4%, 4%) rotate(-6deg) scale(0.96); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob-morph { animation: none; }
+}
+
+/* ---------- Siri-style AI chat ---------- */
+
+.siri-panel {
+  position: relative;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(120% 90% at 15% 0%, rgba(90, 141, 255, 0.16), transparent 55%),
+    radial-gradient(120% 90% at 90% 100%, rgba(176, 107, 255, 0.14), transparent 55%),
+    linear-gradient(165deg, #101019 0%, #0b0b14 60%, #0d0c18 100%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 24px 64px rgba(11, 11, 18, 0.35);
+  color: #f2f1fa;
+}
+
+/* thin animated rainbow rim, like the Siri aura hugging the panel */
+.siri-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: conic-gradient(
+    from var(--siri-angle),
+    rgba(255, 138, 92, 0.7),
+    rgba(255, 95, 158, 0.7),
+    rgba(176, 107, 255, 0.7),
+    rgba(90, 141, 255, 0.7),
+    rgba(100, 216, 255, 0.7),
+    rgba(255, 138, 92, 0.7)
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: siri-rotate 7s linear infinite;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.siri-orb {
+  position: relative;
+  border-radius: 999px;
+  background: conic-gradient(
+    from 40deg,
+    #ff8a5c,
+    #ff5f9e,
+    #b06bff,
+    #5a8dff,
+    #64d8ff,
+    #7dffb2,
+    #ff8a5c
+  );
+  animation: siri-orb-spin 7s linear infinite, siri-orb-breathe 3.2s ease-in-out infinite;
+  will-change: transform, filter;
+}
+.siri-orb::after {
+  content: "";
+  position: absolute;
+  inset: 18%;
+  border-radius: inherit;
+  background: radial-gradient(circle at 38% 32%, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.25) 65%, transparent);
+  filter: blur(1px);
+}
+
+/* while the AI is actually generating a reply: faster spin + a visible
+   pulsing glow, so the orb reads as "working" rather than just decorative */
+.siri-orb.is-thinking {
+  animation: siri-orb-spin 2.2s linear infinite, siri-orb-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes siri-orb-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes siri-orb-breathe {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(176, 107, 255, 0)); }
+  50% { filter: drop-shadow(0 0 10px rgba(176, 107, 255, 0.55)); }
+}
+
+/* ---------- Auth pages: "AI is here" ambient backdrop ----------
+   A huge, heavily blurred version of the assistant orb's own gradient,
+   slowly rotating and breathing behind the login card — replaces
+   dreamy-hero-bg (+ its blobs/hill) on the auth pages specifically.
+   That treatment was authored for the light theme and needed constant
+   per-theme patching (a white "sun glare" pseudo-element in particular)
+   to not clash once dark became the default; this is dark-only by
+   design instead of trying to reconcile both. Two nested elements
+   because rotate and the breathing scale/opacity can't animate the same
+   `transform` property independently on one element. */
+.auth-ai-glow-wrap {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 150vmax;
+  height: 150vmax;
+  transform: translate(-50%, -50%);
+  animation: auth-ai-breathe 9s ease-in-out infinite;
+  pointer-events: none;
+}
+.auth-ai-glow-spin {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: conic-gradient(from 40deg, #ff8a5c, #ff5f9e, #b06bff, #5a8dff, #64d8ff, #7dffb2, #ff8a5c);
+  filter: blur(90px);
+  animation: auth-ai-spin 46s linear infinite;
+}
+@keyframes auth-ai-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes auth-ai-breathe {
+  0%, 100% { opacity: 0.36; transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: 0.5; transform: translate(-50%, -50%) scale(1.08); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-ai-glow-wrap, .auth-ai-glow-spin { animation: none; }
+}
+
+@keyframes siri-orb-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(176, 107, 255, 0.5)) brightness(1); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 16px rgba(176, 107, 255, 0.85)) brightness(1.12); transform: scale(1.06); }
+}
+
+.siri-bubble-user {
+  background: linear-gradient(135deg, #3d7bff, #6a5cff);
+  color: white;
+  box-shadow: 0 6px 18px rgba(61, 123, 255, 0.35);
+}
+
+.siri-bubble-ai {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: #eceaf6;
+}
+
+.siri-chip {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #d9d6ea;
+  transition: background 0.3s ease, border-color 0.3s ease, transform 0.35s cubic-bezier(0.34, 1.35, 0.64, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .siri-chip:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(176, 107, 255, 0.6);
+  }
+}
+.siri-chip:active {
+  transform: scale(0.96);
+}
+
+.siri-input {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f2f1fa;
+}
+.siri-input::placeholder {
+  color: rgba(242, 241, 250, 0.45);
+}
+.siri-input:focus {
+  outline: none;
+  border-color: rgba(120, 150, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(90, 141, 255, 0.22);
+}
+
+.siri-thinking span {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #b06bff, #5a8dff);
+  animation: siri-think 1.1s ease-in-out infinite;
+}
+.siri-thinking span:nth-child(2) { animation-delay: 0.15s; }
+.siri-thinking span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes siri-think {
+  0%, 100% { transform: translateY(0); opacity: 0.5; }
+  50% { transform: translateY(-4px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .siri-glow { display: none; }
+  .glass-sheen::after { animation: none; }
+  .press-spring { transition: none; }
+  .siri-panel::before { animation: none; }
+  .siri-orb { animation: none; }
+  .siri-orb.is-thinking { animation: none; }
+  .siri-thinking span { animation: none; }
+}
+
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- native page-navigation view transitions ---------- */
+
+/* Persistent app chrome (sidebar, mobile nav, top bar) keeps a stable
+   viewTransitionName (see src/app/app/layout.tsx / mobile-nav.tsx) so it
+   doesn't crossfade/flash on every navigation — only the content area does. */
+::view-transition-group(app-shell-sidebar),
+::view-transition-group(app-shell-mobilenav),
+::view-transition-group(app-shell-topbar) {
+  animation: none;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 220ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+  }
+}
+
+::selection {
+  background: var(--color-brand-blue);
+  color: white;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(11, 11, 18, 0.15);
+  border-radius: 999px;
+}

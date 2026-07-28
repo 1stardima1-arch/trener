@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npm run build",
+  "crons": [
+    { "path": "/api/cron/daily-recompute", "schedule": "0 4 * * *" }
+  ]
+}
