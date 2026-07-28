@@ -21,6 +21,10 @@
   --color-brand-pink: #ec4899;
   --color-brand-green: #22c55e;
   --color-brand-amber: #f59e0b;
+  /* Muted slate-blue used only for the Sleep ring — WHOOP deliberately keeps
+     sleep desaturated next to the vivid green/blue of recovery and strain,
+     so the two "how hard" metrics pop and sleep reads as a calmer signal. */
+  --color-brand-slate: #7c8bab;
 
   --color-sky-1: #dceafe;
   --color-sky-2: #eef2ff;

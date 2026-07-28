@@ -2,7 +2,7 @@
 
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { CHART } from "@/lib/chart-colors";
-import { recoveryColor } from "@/components/app/rings";
+import { recoveryColor } from "@/lib/recovery-color";
 
 export function RecoveryBarChart({ data }: { data: { date: string; score: number | null }[] }) {
   return (
@@ -44,7 +44,7 @@ export function StrainBarChart({ data }: { data: { date: string; strain: number 
         <XAxis dataKey="date" tick={{ fontSize: 11, fill: CHART.textSecondary }} axisLine={false} tickLine={false} />
         <YAxis domain={[0, 21]} tick={{ fontSize: 11, fill: CHART.textSecondary }} axisLine={false} tickLine={false} width={28} />
         <Tooltip contentStyle={{ background: CHART.surface, border: "none", borderRadius: 12, fontSize: 12 }} />
-        <Bar dataKey="strain" radius={[6, 6, 6, 6]} fill="#8b5cf6" />
+        <Bar dataKey="strain" radius={[6, 6, 6, 6]} fill={CHART.blue} />
       </BarChart>
     </ResponsiveContainer>
   );

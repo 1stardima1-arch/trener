@@ -5,7 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { isAdminSession } from "@/lib/admin";
 import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem, ensureDailyBriefing } from "@/lib/engine";
 import { sportLabel, formatDuration } from "@/lib/sports";
-import { Ring, recoveryColor, recoveryBand } from "@/components/app/rings";
+import { Ring } from "@/components/app/rings";
+import { recoveryColor, recoveryBand } from "@/lib/recovery-color";
 import { AskCoachBar } from "@/components/app/ask-coach-bar";
 import { ChevronLeft, ChevronRight, Moon, Dumbbell, Apple, Activity as ActivityIcon, Zap, Plus, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 
@@ -68,20 +69,22 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   return (
     <div>
-      <div className="flex items-center justify-center gap-4">
-        <Link href={`/app?date=${addDays(date, -1)}`} className="press-spring flex h-8 w-8 items-center justify-center rounded-full bg-(--color-surface) text-(--color-ink-soft)">
-          <ChevronLeft className="h-4 w-4" />
-        </Link>
-        <span className="min-w-[7rem] text-center text-xs font-bold tracking-widest text-(--color-ink-soft)">{dateLabel}</span>
-        {!isToday ? (
-          <Link href={`/app?date=${addDays(date, 1)}`} className="press-spring flex h-8 w-8 items-center justify-center rounded-full bg-(--color-surface) text-(--color-ink-soft)">
-            <ChevronRight className="h-4 w-4" />
+      <div className="flex items-center justify-center">
+        <div className="flex items-center gap-1 rounded-full border border-white/8 bg-(--color-surface) py-1 pl-1 pr-1">
+          <Link href={`/app?date=${addDays(date, -1)}`} className="press-spring flex h-7 w-7 items-center justify-center rounded-full text-(--color-ink-soft) transition-colors hover:text-(--color-ink)">
+            <ChevronLeft className="h-4 w-4" />
           </Link>
-        ) : (
-          <span className="flex h-8 w-8 items-center justify-center rounded-full text-(--color-ink-soft)/30"><ChevronRight className="h-4 w-4" /></span>
-        )}
+          <span className="min-w-[6rem] text-center text-xs font-bold tracking-widest">{dateLabel}</span>
+          {!isToday ? (
+            <Link href={`/app?date=${addDays(date, 1)}`} className="press-spring flex h-7 w-7 items-center justify-center rounded-full text-(--color-ink-soft) transition-colors hover:text-(--color-ink)">
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          ) : (
+            <span className="flex h-7 w-7 items-center justify-center rounded-full text-(--color-ink-soft)/25"><ChevronRight className="h-4 w-4" /></span>
+          )}
+        </div>
       </div>
-      <h1 className="font-display mt-1 text-center text-2xl font-extrabold tracking-tight">{firstName ? `Привет, ${firstName}` : "Тренер"}</h1>
+      <h1 className="font-display mt-3 text-center text-2xl font-extrabold tracking-tight">{firstName ? `Привет, ${firstName}` : "Тренер"}</h1>
 
       {warnings.length > 0 && (
         <div className="mt-4 rounded-2xl border border-(--color-brand-pink)/25 bg-(--color-brand-pink)/8 p-4">
@@ -111,7 +114,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <div className="mt-6 grid grid-cols-3 items-end gap-2 sm:gap-4">
         <div className="flex flex-col items-center gap-1.5">
-          <Ring value={sleepHours ?? 0} max={profile.sleepGoalHours} size={96} strokeWidth={9} color="var(--color-brand-blue)" label={sleepHours != null ? `${sleepHours}ч` : "—"} deltaVsYesterday={sleepHours != null && yesterdaySleepHours != null ? sleepHours - yesterdaySleepHours : null} />
+          <Ring value={sleepHours ?? 0} max={profile.sleepGoalHours} size={96} strokeWidth={9} color="var(--color-brand-slate)" label={sleepHours != null ? `${sleepHours}ч` : "—"} deltaVsYesterday={sleepHours != null && yesterdaySleepHours != null ? sleepHours - yesterdaySleepHours : null} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Сон</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
@@ -119,7 +122,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Восстановление</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
-          <Ring value={metric?.strain ?? 0} max={21} size={96} strokeWidth={9} color="var(--color-brand-violet)" label={metric?.strain != null ? metric.strain.toFixed(1) : "—"} />
+          <Ring value={metric?.strain ?? 0} max={21} size={96} strokeWidth={9} color="var(--color-brand-blue)" label={metric?.strain != null ? metric.strain.toFixed(1) : "—"} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Нагрузка</span>
         </div>
       </div>
@@ -132,19 +135,34 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         <Link href="/app/health" className="card-surface press-spring p-4">
-          <div className="flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)"><ActivityIcon className="h-3.5 w-3.5" /> Health Monitor</div>
-          <div className="mt-1.5 text-sm font-bold">
-            {metric?.hrvMs || metric?.restingHr ? "Данные обновлены" : "Ожидание данных"}
+          <div className="flex items-center justify-between gap-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">
+            <span className="flex items-center gap-1.5"><ActivityIcon className="h-3.5 w-3.5" /> Health Monitor</span>
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 text-sm font-bold">
+            {metric?.hrvMs || metric?.restingHr ? (
+              <>
+                <span className="h-2 w-2 rounded-full bg-(--color-brand-green)" /> Данные обновлены
+              </>
+            ) : (
+              "Ожидание данных"
+            )}
           </div>
         </Link>
         {deviceCount === 0 ? (
           <Link href="/app/devices" className="card-surface press-spring p-4">
-            <div className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Устройства</div>
+            <div className="flex items-center justify-between gap-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">
+              Устройства
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+            </div>
             <div className="mt-1.5 text-sm font-bold text-(--color-brand-amber)">Подключить</div>
           </Link>
         ) : (
           <Link href="/app/nutrition" className="card-surface press-spring p-4">
-            <div className="flex items-center gap-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)"><Apple className="h-3.5 w-3.5" /> Питание</div>
+            <div className="flex items-center justify-between gap-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">
+              <span className="flex items-center gap-1.5"><Apple className="h-3.5 w-3.5" /> Питание</span>
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+            </div>
             <div className="mt-1.5 text-sm font-bold">Норма на сегодня</div>
           </Link>
         )}

@@ -55,16 +55,3 @@ export function Ring({
   );
 }
 
-export function recoveryColor(score: number | null | undefined): string {
-  if (score == null) return "var(--color-ink-soft)";
-  if (score >= 67) return "var(--color-brand-green)";
-  if (score >= 34) return "var(--color-brand-amber)";
-  return "var(--color-brand-pink)";
-}
-
-export function recoveryBand(score: number | null | undefined): "HIGH" | "MEDIUM" | "LOW" | null {
-  if (score == null) return null;
-  if (score >= 67) return "HIGH";
-  if (score >= 34) return "MEDIUM";
-  return "LOW";
-}

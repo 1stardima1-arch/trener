@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Manrope, Unbounded } from "next/font/google";
+import Script from "next/script";
 import { SwRegister } from "@/components/pwa/sw-register";
 import { AppSplash } from "@/components/app/app-splash";
 import "./globals.css";
@@ -71,7 +72,9 @@ export default function RootLayout({
             client component after hydration, would always show a flash.
             Dark is the default theme: only an explicit "light" choice
             (saved by ThemeToggle) turns it off. */}
-        <script
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html:
               "try{if(localStorage.getItem('trener-theme')!=='light')document.documentElement.classList.add('dark')}catch(e){}",
