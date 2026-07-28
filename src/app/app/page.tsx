@@ -3,11 +3,11 @@ import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdminSession } from "@/lib/admin";
-import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem } from "@/lib/engine";
+import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem, ensureDailyBriefing } from "@/lib/engine";
 import { sportLabel, formatDuration } from "@/lib/sports";
-import { Ring, recoveryColor } from "@/components/app/rings";
+import { Ring, recoveryColor, recoveryBand } from "@/components/app/rings";
 import { AskCoachBar } from "@/components/app/ask-coach-bar";
-import { ChevronLeft, ChevronRight, Moon, Dumbbell, Apple, Activity as ActivityIcon, Zap, Plus, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Moon, Dumbbell, Apple, Activity as ActivityIcon, Zap, Plus, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 
 function toDateStr(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -38,27 +38,33 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     return <div className="card-surface p-8 text-center text-(--color-ink-soft)">Заверши настройку профиля, чтобы увидеть дашборд.</div>;
   }
 
+  let briefing: string | null = null;
   if (isToday) {
     try {
       await ensureDailyMetricRow(userId, date);
       await computeAndSaveDailyMetric(userId, date);
       await ensureTodayPlanItem(userId);
+      briefing = await ensureDailyBriefing(userId, date);
     } catch (e) {
       console.error("dashboard recompute failed", e);
     }
   }
 
-  const [metric, planItems, insights, deviceCount] = await Promise.all([
+  const [metric, yesterdayMetric, planItems, insights, deviceCount] = await Promise.all([
     prisma.dailyMetric.findUnique({ where: { userId_date: { userId, date: new Date(date) } } }),
+    prisma.dailyMetric.findUnique({ where: { userId_date: { userId, date: new Date(addDays(date, -1)) } } }),
     prisma.planItem.findMany({ where: { userId, date: new Date(date) } }),
     prisma.insight.findMany({ where: { userId, date: new Date(date) }, orderBy: { createdAt: "desc" } }),
     prisma.deviceConnection.count({ where: { userId, status: "CONNECTED" } }),
   ]);
   const planItem = planItems[0];
+  const warnings = insights.filter((i) => i.severity === "WARNING" && (i.type === "ILLNESS_RISK" || i.type === "OVERREACHING_RISK"));
 
   const firstName = session!.user.name?.split(" ")[0] ?? "";
   const sleepHours = metric?.sleepDurationSec ? Math.round((metric.sleepDurationSec / 3600) * 10) / 10 : null;
+  const yesterdaySleepHours = yesterdayMetric?.sleepDurationSec ? Math.round((yesterdayMetric.sleepDurationSec / 3600) * 10) / 10 : null;
   const dateLabel = isToday ? "СЕГОДНЯ" : new Date(date).toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
+  const band = recoveryBand(metric?.recoveryScore);
 
   return (
     <div>
@@ -77,13 +83,39 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
       <h1 className="font-display mt-1 text-center text-2xl font-extrabold tracking-tight">{firstName ? `Привет, ${firstName}` : "Тренер"}</h1>
 
+      {warnings.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-(--color-brand-pink)/25 bg-(--color-brand-pink)/8 p-4">
+          {warnings.map((w) => (
+            <div key={w.id} className="flex items-start gap-2.5">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-(--color-brand-pink)" />
+              <div>
+                <div className="text-sm font-bold text-(--color-brand-pink)">{w.title}</div>
+                <p className="mt-0.5 text-sm text-(--color-ink-soft)">{w.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isToday && briefing && (
+        <div className="siri-panel relative mt-4 overflow-hidden p-5">
+          <div className="relative z-10 flex items-start gap-3">
+            <span className="siri-orb mt-0.5 h-8 w-8 shrink-0" />
+            <div>
+              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/50"><Sparkles className="h-3 w-3" /> Слово тренера</div>
+              <p className="mt-1.5 text-sm leading-relaxed text-white/90">{briefing}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 grid grid-cols-3 items-end gap-2 sm:gap-4">
         <div className="flex flex-col items-center gap-1.5">
-          <Ring value={sleepHours ?? 0} max={profile.sleepGoalHours} size={96} strokeWidth={9} color="var(--color-brand-blue)" label={sleepHours != null ? `${sleepHours}ч` : "—"} />
+          <Ring value={sleepHours ?? 0} max={profile.sleepGoalHours} size={96} strokeWidth={9} color="var(--color-brand-blue)" label={sleepHours != null ? `${sleepHours}ч` : "—"} deltaVsYesterday={sleepHours != null && yesterdaySleepHours != null ? sleepHours - yesterdaySleepHours : null} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Сон</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
-          <Ring value={metric?.recoveryScore ?? 0} size={140} strokeWidth={13} color={recoveryColor(metric?.recoveryScore)} label={metric?.recoveryScore != null ? `${metric.recoveryScore}%` : "—"} />
+          <Ring value={metric?.recoveryScore ?? 0} size={140} strokeWidth={13} color={recoveryColor(metric?.recoveryScore)} label={metric?.recoveryScore != null ? `${metric.recoveryScore}%` : "—"} glow={band === "HIGH"} deltaVsYesterday={metric?.recoveryScore != null && yesterdayMetric?.recoveryScore != null ? metric.recoveryScore - yesterdayMetric.recoveryScore : null} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Восстановление</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">

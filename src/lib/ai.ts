@@ -90,6 +90,31 @@ ${params.metrics ? `Данные: ${JSON.stringify(params.metrics)}` : ""}`;
   }
 }
 
+// The proactive "Coach's Take" shown at the top of the dashboard every
+// morning — unlike narrateInsight (which explains one specific change),
+// this synthesizes the whole day's picture (readiness + sleep + plan +
+// any anomaly flags) into one short, personal briefing, generated once and
+// cached (see engine.ts ensureDailyBriefing). Falls back to a plain
+// deterministic sentence if Groq isn't configured — the dashboard always
+// has *something* here, never a blank space waiting on the LLM.
+export async function generateDailyBriefing(context: Record<string, unknown>): Promise<string> {
+  const fallback = `Готовность: ${context["готовность"] ?? "нет данных"}. План на сегодня: ${
+    (context["план"] as { название?: string } | undefined)?.название ?? "отдых"
+  }.`;
+  if (!isAiEnabled()) return fallback;
+  try {
+    const prompt = `Начни утро атлета с короткого личного брифинга тренера — 3-5 предложений, тепло и по делу, как будто тренер лично посмотрел на все его данные за ночь и говорит, что делать сегодня и почему. Не выдумывай цифр сверх приведённых, используй ровно эти данные.
+
+${buildCoachContext(context)}
+
+Если есть тревожные флаги (риск болезни/перетренированности) — упомяни их первыми и мягко, но ясно. Если всё хорошо — можно быть чуть более воодушевляющим. Не используй заголовки/списки, только связный текст.`;
+    const text = await generateText(prompt);
+    return text.trim() || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 // Coach-chat-specific "explain this decision" helper — used by the
 // "Почему?" button next to any plan item / recovery score / threshold.
 export async function explainDecision(params: { question: string; contextSnapshot: Record<string, unknown> }): Promise<string> {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem } from "@/lib/engine";
+import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem, ensureDailyBriefing } from "@/lib/engine";
 import { runPolarSyncForUser, runAthyxSyncForUser } from "@/lib/actions/devices";
 
 function today() {
@@ -44,6 +44,7 @@ export async function GET(req: NextRequest) {
       await ensureDailyMetricRow(userId, date);
       await computeAndSaveDailyMetric(userId, date);
       await ensureTodayPlanItem(userId);
+      await ensureDailyBriefing(userId, date);
       recomputed++;
     } catch (e) {
       console.error(`cron recompute failed for ${userId}`, e);

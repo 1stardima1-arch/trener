@@ -511,6 +511,11 @@ model DailyMetric {
   recoveryBreakdown Json? // [{ factor, weight, contribution, note }] — the "why" behind the number
   strain            Float? // 0-21-style cumulative daily strain from training load + HR time-in-zone
 
+  // Proactive daily synthesis (recovery + sleep + plan + anomalies in one
+  // paragraph) shown at the top of the dashboard — generated once per day
+  // and cached here so it isn't re-generated (and re-billed) on every load.
+  coachBriefing String? @db.Text
+
   source      DataSource?
   manualEntry Boolean     @default(false)
 

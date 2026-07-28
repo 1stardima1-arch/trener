@@ -114,6 +114,92 @@ export function rollingBaseline(values: number[], windowDays = 14): { mean: numb
   return { mean, stdDev: Math.sqrt(variance) };
 }
 
+export type AnomalyFlag = {
+  type: "ILLNESS_RISK" | "OVERREACHING_RISK" | "FITNESS_IMPROVING";
+  severity: "WARNING" | "POSITIVE";
+  title: string;
+  message: string;
+};
+
+// Early-warning pattern detection — the same combination of signals sports
+// physiologists and wearable-illness-monitor literature (e.g. Hazell et al.
+// on RHR/HRV during upper-respiratory illness) flag as noteworthy:
+//  - Illness risk: RHR meaningfully ABOVE baseline *and* HRV meaningfully
+//    BELOW baseline, at the same time — either alone is common noise (a hot
+//    day, a hard workout the day before); together, same-day, is the actual
+//    illness/inflammation signature.
+//  - Overreaching risk: accumulated fatigue (TSB deeply negative) combined
+//    with a *multi-day downward drift* in HRV and a high ACWR — a slow
+//    trend, not a single bad night, which is what separates "needs an easy
+//    week" from "just slept badly once".
+//  - Fitness improving: the mirror image sustained over two weeks — HRV
+//    trending up and RHR trending down together — a genuine positive signal
+//    worth surfacing, not just an absence of problems.
+export function detectAnomalies(input: {
+  hrvMs: number | null; hrvBaselineMean: number | null; hrvBaselineStdDev: number | null;
+  restingHr: number | null; rhrBaselineMean: number | null; rhrBaselineStdDev: number | null;
+  hrvLast7: number[]; // ascending, most recent last, HRV values (ms) — for trend detection
+  rhrLast7: number[];
+  tsb: number | null;
+  acwrRisk: "LOW" | "MODERATE" | "HIGH" | "UNDERTRAINED" | null;
+}): AnomalyFlag[] {
+  const flags: AnomalyFlag[] = [];
+
+  const hrvZ = input.hrvMs != null && input.hrvBaselineMean != null && input.hrvBaselineStdDev
+    ? (input.hrvMs - input.hrvBaselineMean) / Math.max(input.hrvBaselineStdDev, 1) : null;
+  const rhrZ = input.restingHr != null && input.rhrBaselineMean != null && input.rhrBaselineStdDev
+    ? (input.restingHr - input.rhrBaselineMean) / Math.max(input.rhrBaselineStdDev, 1) : null;
+
+  if (hrvZ != null && rhrZ != null && hrvZ <= -1.3 && rhrZ >= 1.3) {
+    flags.push({
+      type: "ILLNESS_RISK",
+      severity: "WARNING",
+      title: "Возможное недовосстановление или начало болезни",
+      message: `Пульс покоя заметно выше твоей нормы, а ВСР заметно ниже — одновременно. Это классическое сочетание признаков надвигающейся болезни или сильного недовосстановления, не просто усталость от одной тренировки. Сегодня разумно снизить нагрузку и последить за самочувствием.`,
+    });
+  }
+
+  const hrvSlope = linearSlope(input.hrvLast7);
+  const rhrSlope = linearSlope(input.rhrLast7);
+
+  if (input.tsb != null && input.tsb < -20 && (input.acwrRisk === "HIGH" || input.acwrRisk === "MODERATE") && hrvSlope != null && hrvSlope < -0.5) {
+    flags.push({
+      type: "OVERREACHING_RISK",
+      severity: "WARNING",
+      title: "Риск перетренированности",
+      message: `Накопленная усталость (форма ${input.tsb.toFixed(0)}) сочетается с ростом нагрузки быстрее, чем тело успевает адаптироваться, и устойчивым снижением ВСР несколько дней подряд — а не разовым провалом. Стоит запланировать разгрузочные дни, а не пытаться продавить план через усталость.`,
+    });
+  }
+
+  if (hrvSlope != null && hrvSlope > 0.4 && rhrSlope != null && rhrSlope < -0.2 && input.hrvLast7.length >= 6) {
+    flags.push({
+      type: "FITNESS_IMPROVING",
+      severity: "POSITIVE",
+      title: "Устойчивый рост подготовленности",
+      message: `За последнюю неделю ВСР стабильно растёт, а пульс покоя стабильно снижается — вместе это надёжный признак того, что аэробная база и восстановительная способность реально улучшаются, а не просто "хороший день".`,
+    });
+  }
+
+  return flags;
+}
+
+// Ordinary least-squares slope over an evenly-spaced series — used only to
+// tell "drifting up/down over several days" from "noisy but flat", not for
+// precise forecasting, so a plain OLS fit is enough.
+function linearSlope(values: number[]): number | null {
+  if (values.length < 4) return null;
+  const n = values.length;
+  const xs = Array.from({ length: n }, (_, i) => i);
+  const xMean = xs.reduce((a, b) => a + b, 0) / n;
+  const yMean = values.reduce((a, b) => a + b, 0) / n;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (xs[i] - xMean) * (values[i] - yMean);
+    den += (xs[i] - xMean) ** 2;
+  }
+  return den === 0 ? null : num / den;
+}
+
 // Sleep score 0-100 from duration-vs-goal + stage composition — used as an
 // input to computeRecoveryScore above and shown standalone on the sleep page.
 export function computeSleepScore(params: {

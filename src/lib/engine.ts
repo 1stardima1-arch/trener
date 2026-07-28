@@ -5,14 +5,14 @@
 // each caller.
 
 import { prisma } from "@/lib/prisma";
-import { ageFromBirthDate } from "@/lib/sports";
+import { ageFromBirthDate, sportLabel } from "@/lib/sports";
 import { deriveThresholds, type StepPoint } from "@/lib/physiology/threshold";
 import { hrZonesFromLthr, hrZonesFromMaxHr, paceZonesFromThresholdPace, powerZonesFromFtp, estimateMaxHr } from "@/lib/physiology/zones";
 import { estimateVo2max } from "@/lib/physiology/vo2max";
 import { trimp, rpeLoad, computeCtlAtlTsb, computeAcwr, computeDailyStrain, type DayLoad } from "@/lib/physiology/training-load";
-import { computeRecoveryScore, computeSleepScore, rollingBaseline } from "@/lib/physiology/recovery";
+import { computeRecoveryScore, computeSleepScore, rollingBaseline, detectAnomalies } from "@/lib/physiology/recovery";
 import { generateMesocycle, adjustForReadiness, evaluateCompletedSession, phaseForWeek, type AthleteContext, type ReadinessContext, type DraftPlanItem } from "@/lib/physiology/plan-engine";
-import { narrateInsight } from "@/lib/ai";
+import { narrateInsight, generateDailyBriefing } from "@/lib/ai";
 import { asJson } from "@/lib/utils";
 import type { DataSource } from "@prisma/client";
 
@@ -194,6 +194,24 @@ export async function computeAndSaveDailyMetric(userId: string, date: string) {
       recovery.band === "LOW" ? "WARNING" : recovery.band === "HIGH" ? "POSITIVE" : "INFO",
       { score: recovery.score, breakdown: recovery.breakdown }
     );
+  }
+
+  // Early-warning pattern detection (illness/overreaching/positive trend) —
+  // runs off the same baselines, plus a short trend window and ACWR. Only
+  // written once per calendar day per flag type, so repeated dashboard
+  // loads don't spam the insight feed.
+  const hrvLast7 = [...history.slice(-6).map((h) => h.hrvMs), existing.hrvMs].filter((v): v is number => v != null);
+  const rhrLast7 = [...history.slice(-6).map((h) => h.restingHr), existing.restingHr].filter((v): v is number => v != null);
+  const acwr = computeAcwr(activityLoads);
+  const anomalies = detectAnomalies({
+    hrvMs: existing.hrvMs, hrvBaselineMean: hrvBaseline?.mean ?? null, hrvBaselineStdDev: hrvBaseline?.stdDev ?? null,
+    restingHr: existing.restingHr, rhrBaselineMean: rhrBaseline?.mean ?? null, rhrBaselineStdDev: rhrBaseline?.stdDev ?? null,
+    hrvLast7, rhrLast7, tsb, acwrRisk: acwr.risk,
+  });
+  for (const flag of anomalies) {
+    const already = await prisma.insight.findFirst({ where: { userId, date: new Date(date), type: flag.type } });
+    if (already) continue;
+    await writeInsight(userId, date, flag.type, flag.title, flag.message, flag.severity, { hrvLast7, rhrLast7, tsb, acwr: acwr.ratio });
   }
 
   return updated;
@@ -404,3 +422,34 @@ async function ensureDailyMetricRow(userId: string, date: string) {
 }
 
 export { ensureDailyMetricRow };
+
+// ---------------- Daily briefing ----------------
+
+// Generated once per calendar day (idempotent — a cached briefing is never
+// regenerated), after recovery/plan have already been computed, so it can
+// synthesize the whole picture instead of racing the numbers it's supposed
+// to summarize. Call this last in the daily pipeline (dashboard page /
+// cron), after computeAndSaveDailyMetric and ensureTodayPlanItem.
+export async function ensureDailyBriefing(userId: string, date: string) {
+  const existing = await prisma.dailyMetric.findUnique({ where: { userId_date: { userId, date: new Date(date) } } });
+  if (existing?.coachBriefing) return existing.coachBriefing;
+
+  const [profile, planItem, warnings] = await Promise.all([
+    prisma.athleteProfile.findUnique({ where: { userId } }),
+    prisma.planItem.findFirst({ where: { userId, date: new Date(date) } }),
+    prisma.insight.findMany({ where: { userId, date: new Date(date), severity: "WARNING" }, orderBy: { createdAt: "desc" }, take: 2 }),
+  ]);
+
+  const context: Record<string, unknown> = {
+    вид_спорта: profile ? sportLabel(profile.primarySport) : null,
+    готовность: existing?.recoveryScore != null ? `${existing.recoveryScore}/100` : "нет данных",
+    сон_часов: existing?.sleepDurationSec ? Math.round((existing.sleepDurationSec / 3600) * 10) / 10 : null,
+    нагрузка_сегодня: existing?.strain,
+    план: planItem ? { название: planItem.title, тип: planItem.targetType, причина: planItem.adjustReason ?? planItem.explanation } : null,
+    тревожные_флаги: warnings.length ? warnings.map((w) => w.title) : null,
+  };
+
+  const briefing = await generateDailyBriefing(context);
+  await prisma.dailyMetric.update({ where: { userId_date: { userId, date: new Date(date) } }, data: { coachBriefing: briefing } });
+  return briefing;
+}
