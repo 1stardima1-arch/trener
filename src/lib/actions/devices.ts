@@ -9,7 +9,8 @@ import { parseFitFile } from "@/lib/integrations/fit";
 import { garminSsoLogin, garminExchangeOAuth2, listRecentGarminActivities, mapGarminSport } from "@/lib/integrations/garmin-unofficial";
 import { syncNewExercises, isoDurationToSec } from "@/lib/integrations/polar";
 import { listRecentStravaActivities, mapStravaSport, refreshStravaToken } from "@/lib/integrations/strava";
-import { ingestActivity } from "@/lib/engine";
+import { verifyIntervalsIcuKey, fetchIntervalsWellness, fetchIntervalsActivities, mapIntervalsSport } from "@/lib/integrations/intervals-icu";
+import { ingestActivity, ensureDailyMetricRow } from "@/lib/engine";
 import type { DataSource } from "@prisma/client";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -176,6 +177,97 @@ export async function syncStravaNow(): Promise<ActionResult> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
   const result = await runStravaSyncForUser(session.user.id);
+  revalidatePath("/app/devices");
+  revalidatePath("/app");
+  return result;
+}
+
+// ---------------- intervals.icu (real API key, full wellness bridge) ----------------
+//
+// The recommended full picture for Garmin users specifically: intervals.icu
+// is itself an official Garmin integration partner, so the athlete connects
+// Garmin to intervals.icu through intervals.icu's own proper OAuth screen —
+// then we read the already-synced sleep/HRV/recovery *and* activities back
+// out through intervals.icu's self-serve API. Same "paste your own key"
+// shape as Athyx, just carrying more than activities.
+
+export async function connectIntervalsIcu(athleteId: string, apiKey: string): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
+  if (!athleteId.trim() || !apiKey.trim()) return { ok: false, error: "Укажи Athlete ID и API-ключ." };
+
+  const check = await verifyIntervalsIcuKey(athleteId.trim(), apiKey.trim());
+  if (!check.ok) return check;
+
+  await prisma.deviceConnection.upsert({
+    where: { userId_provider: { userId: session.user.id, provider: "INTERVALS_ICU" } },
+    update: { status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()), lastSyncError: null },
+    create: { userId: session.user.id, provider: "INTERVALS_ICU", status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()) },
+  });
+
+  const result = await runIntervalsIcuSyncForUser(session.user.id);
+  revalidatePath("/app/devices");
+  revalidatePath("/app");
+  return result;
+}
+
+export async function runIntervalsIcuSyncForUser(userId: string): Promise<ActionResult> {
+  const conn = await prisma.deviceConnection.findUnique({ where: { userId_provider: { userId, provider: "INTERVALS_ICU" } } });
+  if (!conn?.secretEnc || !conn.externalUserId) return { ok: false, error: "intervals.icu не подключён." };
+
+  try {
+    const apiKey = decryptSecret(conn.secretEnc);
+    const athleteId = conn.externalUserId;
+    const newest = new Date().toISOString().slice(0, 10);
+    const oldest = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+
+    const [wellness, activities] = await Promise.all([
+      fetchIntervalsWellness(athleteId, apiKey, oldest, newest),
+      fetchIntervalsActivities(athleteId, apiKey, oldest, newest),
+    ]);
+
+    for (const day of wellness) {
+      if (!day.date) continue;
+      await ensureDailyMetricRow(userId, day.date);
+      await prisma.dailyMetric.update({
+        where: { userId_date: { userId, date: new Date(day.date) } },
+        data: {
+          hrvMs: day.hrv ?? undefined,
+          restingHr: day.restingHR ?? undefined,
+          sleepDurationSec: day.sleepSecs ?? undefined,
+          spo2: day.spO2 ?? undefined,
+          respiratoryRate: day.respiration ?? undefined,
+          bodyBattery: day.bodyBattery ?? undefined,
+          source: "INTERVALS_ICU" as DataSource,
+        },
+      });
+    }
+
+    for (const a of activities) {
+      await ingestActivity(userId, "INTERVALS_ICU" as DataSource, {
+        externalId: a.id, sport: mapIntervalsSport(a.type), startedAt: new Date(a.startDateLocal),
+        durationSec: a.durationSec, distanceM: a.distanceM, avgHr: a.avgHr, maxHr: a.maxHr, calories: a.calories,
+        avgPaceSecPerKm: a.avgPaceSecPerKm,
+      });
+    }
+
+    await prisma.deviceConnection.update({
+      where: { id: conn.id },
+      data: { lastSyncedAt: new Date(), lastSyncStatus: `Дней самочувствия: ${wellness.length}, тренировок: ${activities.length}`, lastSyncError: null, status: "CONNECTED" },
+    });
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Неизвестная ошибка синхронизации intervals.icu.";
+    await prisma.deviceConnection.update({ where: { id: conn.id }, data: { lastSyncError: error, status: "ERROR" } });
+    return { ok: false, error };
+  }
+
+  return { ok: true };
+}
+
+export async function syncIntervalsIcuNow(): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
+  const result = await runIntervalsIcuSyncForUser(session.user.id);
   revalidatePath("/app/devices");
   revalidatePath("/app");
   return result;

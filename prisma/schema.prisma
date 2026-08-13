@@ -164,6 +164,7 @@ enum DataSource {
   POLAR
   ATHYX
   STRAVA
+  INTERVALS_ICU
   MANUAL
   OTHER
 }

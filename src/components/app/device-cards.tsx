@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CheckCircle2, XCircle, RefreshCw, Unlink } from "lucide-react";
-import { connectAthyx, syncAthyx, syncStravaNow, connectGarminUnofficial, syncGarminUnofficial, disconnectDevice } from "@/lib/actions/devices";
+import { connectAthyx, syncAthyx, syncStravaNow, connectIntervalsIcu, syncIntervalsIcuNow, connectGarminUnofficial, syncGarminUnofficial, disconnectDevice } from "@/lib/actions/devices";
 import { cn } from "@/lib/utils";
 import type { DataSource } from "@prisma/client";
 
@@ -113,6 +113,46 @@ export function StravaCard({ conn }: { conn: ConnState }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+export function IntervalsIcuCard({ conn }: { conn: ConnState }) {
+  const [athleteId, setAthleteId] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [status, setStatus] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <div className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <div className="font-bold">intervals.icu</div>
+        <span className="rounded-full bg-(--color-brand-green)/15 px-2 py-0.5 text-[0.65rem] font-bold text-(--color-brand-green)">Официальный API</span>
+      </div>
+      <p className="mt-1 text-xs text-(--color-ink-soft)">
+        Полная картина с Garmin в одном месте: сон, ВСР, восстановление и тренировки — если сначала подключишь Garmin к intervals.icu (у них своя официальная связка с Garmin).
+      </p>
+      <StatusLine conn={conn} />
+      {!conn ? (
+        <div className="mt-3 space-y-2">
+          <input value={athleteId} onChange={(e) => setAthleteId(e.target.value)} placeholder="Athlete ID (например i123456)" className="w-full rounded-xl border border-black/10 bg-(--color-surface) px-3 py-2 text-sm dark:border-white/10" />
+          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API-ключ" className="w-full rounded-xl border border-black/10 bg-(--color-surface) px-3 py-2 text-sm dark:border-white/10" />
+          <button
+            disabled={isPending || !athleteId || !apiKey}
+            onClick={() => startTransition(async () => { const res = await connectIntervalsIcu(athleteId, apiKey); setStatus(res.ok ? { kind: "ok", text: "Подключено!" } : { kind: "error", text: res.error }); if (res.ok) setApiKey(""); })}
+            className="press-spring w-full rounded-full btn-gradient py-2 text-xs font-bold disabled:opacity-50"
+          >
+            Подключить
+          </button>
+        </div>
+      ) : (
+        <div className="mt-2 flex gap-2">
+          <button disabled={isPending} onClick={() => startTransition(() => { syncIntervalsIcuNow(); })} className="press-spring flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold dark:bg-white/10"><RefreshCw className="h-3 w-3" /> Синхронизировать</button>
+          <button disabled={isPending} onClick={() => startTransition(() => { disconnectDevice("INTERVALS_ICU" as DataSource); })} className="press-spring flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold text-(--color-brand-pink) dark:bg-white/10"><Unlink className="h-3 w-3" /> Отключить</button>
+        </div>
+      )}
+      {status && <p className={cn("mt-2 text-xs font-semibold", status.kind === "ok" ? "text-(--color-brand-green)" : "text-(--color-brand-pink)")}>{status.text}</p>}
+      <p className="mt-2 text-[0.7rem] text-(--color-ink-soft)">Athlete ID и ключ — в аккаунте intervals.icu → Settings → Developer Settings.</p>
     </div>
   );
 }
