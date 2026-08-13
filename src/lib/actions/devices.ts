@@ -199,16 +199,25 @@ export async function connectIntervalsIcu(athleteId: string, apiKey: string): Pr
   const check = await verifyIntervalsIcuKey(athleteId.trim(), apiKey.trim());
   if (!check.ok) return check;
 
-  await prisma.deviceConnection.upsert({
-    where: { userId_provider: { userId: session.user.id, provider: "INTERVALS_ICU" } },
-    update: { status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()), lastSyncError: null },
-    create: { userId: session.user.id, provider: "INTERVALS_ICU", status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()) },
-  });
+  // Wrapped end-to-end so a failure the athlete can't do anything about
+  // (schema not migrated yet on a stale deploy, a transient DB hiccup)
+  // shows up as a card error instead of crashing the whole page — the
+  // one thing this action must never do to the athlete.
+  try {
+    await prisma.deviceConnection.upsert({
+      where: { userId_provider: { userId: session.user.id, provider: "INTERVALS_ICU" } },
+      update: { status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()), lastSyncError: null },
+      create: { userId: session.user.id, provider: "INTERVALS_ICU", status: "CONNECTED", externalUserId: athleteId.trim(), secretEnc: encryptSecret(apiKey.trim()) },
+    });
 
-  const result = await runIntervalsIcuSyncForUser(session.user.id);
-  revalidatePath("/app/devices");
-  revalidatePath("/app");
-  return result;
+    const result = await runIntervalsIcuSyncForUser(session.user.id);
+    revalidatePath("/app/devices");
+    revalidatePath("/app");
+    return result;
+  } catch (e) {
+    console.error("connectIntervalsIcu failed", e);
+    return { ok: false, error: e instanceof Error ? e.message : "Не удалось сохранить подключение intervals.icu." };
+  }
 }
 
 export async function runIntervalsIcuSyncForUser(userId: string): Promise<ActionResult> {

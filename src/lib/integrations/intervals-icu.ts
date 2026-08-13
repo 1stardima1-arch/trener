@@ -32,12 +32,20 @@ function authHeader(apiKey: string): string {
 }
 
 export async function verifyIntervalsIcuKey(athleteId: string, apiKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const res = await fetch(`${API_BASE}/athlete/${encodeURIComponent(athleteId)}`, {
-    headers: { Authorization: authHeader(apiKey) },
-  });
-  if (res.status === 401 || res.status === 403) return { ok: false, error: "intervals.icu: неверный Athlete ID или API-ключ." };
-  if (!res.ok) return { ok: false, error: `intervals.icu: ошибка проверки ключа (${res.status}).` };
-  return { ok: true };
+  try {
+    const res = await fetch(`${API_BASE}/athlete/${encodeURIComponent(athleteId)}`, {
+      headers: { Authorization: authHeader(apiKey) },
+    });
+    if (res.status === 401 || res.status === 403) return { ok: false, error: "intervals.icu: неверный Athlete ID или API-ключ." };
+    if (!res.ok) return { ok: false, error: `intervals.icu: ошибка проверки ключа (${res.status}).` };
+    return { ok: true };
+  } catch (e) {
+    // A thrown network error here (DNS, timeout, TLS) would otherwise
+    // propagate uncaught out of the server action and crash the whole
+    // page with a generic Next.js error screen instead of showing the
+    // athlete an inline message on the Devices card.
+    return { ok: false, error: e instanceof Error ? `intervals.icu: сеть недоступна (${e.message}).` : "intervals.icu: сеть недоступна." };
+  }
 }
 
 export type IntervalsWellnessDay = {
