@@ -8,6 +8,7 @@ import { sportLabel, formatDuration } from "@/lib/sports";
 import { Ring } from "@/components/app/rings";
 import { recoveryColor, recoveryBand } from "@/lib/recovery-color";
 import { AskCoachBar } from "@/components/app/ask-coach-bar";
+import { DailyCheckIn } from "@/components/app/daily-checkin";
 import { ChevronLeft, ChevronRight, Moon, Dumbbell, Apple, Activity as ActivityIcon, Zap, Plus, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 
 function toDateStr(d: Date) {
@@ -130,6 +131,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {isToday && (
         <div className="mt-6">
           <AskCoachBar />
+        </div>
+      )}
+
+      {isToday && metric?.subjectiveEnergy == null && (
+        <div className="mt-4">
+          <DailyCheckIn date={date} />
         </div>
       )}
 

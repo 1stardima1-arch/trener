@@ -511,6 +511,18 @@ model DailyMetric {
   recoveryBreakdown Json? // [{ factor, weight, contribution, note }] — the "why" behind the number
   strain            Float? // 0-21-style cumulative daily strain from training load + HR time-in-zone
 
+  // Subjective daily check-in (WHOOP Journal / Garmin-style self-report) —
+  // deliberately kept separate from recoveryScore rather than folding into
+  // it: the physiological score must stay a pure function of HRV/RHR/sleep
+  // so it's reproducible and can't be "talked into" a number, but soreness/
+  // stress/energy still matter for what to actually train today, so they
+  // feed the AI coach's context and adjustForReadiness (plan-engine.ts) as
+  // a separate, explicit input instead of secretly reweighting the score.
+  subjectiveEnergy   Int? // 1-5
+  subjectiveSoreness Int? // 1-5
+  subjectiveStress   Int? // 1-5
+  subjectiveNote     String? @db.Text
+
   // Proactive daily synthesis (recovery + sleep + plan + anomalies in one
   // paragraph) shown at the top of the dashboard — generated once per day
   // and cached here so it isn't re-generated (and re-billed) on every load.

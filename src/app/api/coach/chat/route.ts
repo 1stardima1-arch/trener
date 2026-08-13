@@ -1,19 +1,8 @@
 import { NextRequest } from "next/server";
-import { APIError } from "groq-sdk";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { isAiEnabled, streamCoachReply, type ChatMessage } from "@/lib/ai";
+import { isAiEnabled, streamCoachReply, describeAiError, type ChatMessage } from "@/lib/ai";
 import { sportLabel } from "@/lib/sports";
-
-function describeGroqError(err: unknown): string {
-  if (err instanceof APIError) {
-    if (err.status === 401) return "Ключ GROQ_API_KEY недействителен. Проверь его в .env / Vercel и сделай redeploy.";
-    if (err.status === 404) return `Groq не нашёл модель "${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"}" — проверь GROQ_MODEL.`;
-    if (err.status === 429) return "Groq вернул 429 — превышен лимит бесплатного тарифа. Попробуй через минуту.";
-    return `Groq вернул ошибку ${err.status ?? ""}: ${err.message}`;
-  }
-  return "Не получилось получить ответ от ИИ. Попробуй ещё раз через минуту.";
-}
 
 // Builds the "current data" context every coach reply is grounded in —
 // today's recovery/sleep/strain, current thresholds, and today's plan item
@@ -43,6 +32,10 @@ async function buildContextSnapshot(userId: string) {
     готовность_сегодня: metric?.recoveryScore != null ? `${metric.recoveryScore}/100` : "нет данных",
     нагрузка_вчера_сегодня: metric?.strain,
     сон_часов: metric?.sleepDurationSec ? Math.round((metric.sleepDurationSec / 3600) * 10) / 10 : null,
+    самочувствие_энергия: metric?.subjectiveEnergy != null ? `${metric.subjectiveEnergy}/5` : null,
+    самочувствие_мышечная_усталость: metric?.subjectiveSoreness != null ? `${metric.subjectiveSoreness}/5` : null,
+    самочувствие_стресс: metric?.subjectiveStress != null ? `${metric.subjectiveStress}/5` : null,
+    самочувствие_заметка: metric?.subjectiveNote ?? null,
     порог_ЧСС: snapshot?.lthrBpm,
     vo2max: snapshot?.vo2max,
     биохимия: hasBiomarkers ? biomarkers : undefined,
@@ -68,7 +61,7 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
 
   if (!isAiEnabled()) {
-    const fallback = "ИИ-тренер пока не настроен: добавь бесплатный ключ GROQ_API_KEY в .env (см. README — 2 минуты на console.groq.com/keys).";
+    const fallback = "ИИ-тренер пока не настроен: добавь GEMINI_API_KEY (aistudio.google.com/app/apikey) или GROQ_API_KEY (console.groq.com/keys) в .env — см. README.";
     await prisma.coachMessage.create({ data: { userId, role: "assistant", content: fallback, contextJson: contextSnapshot } });
     return new Response(fallback, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
   }
@@ -82,10 +75,10 @@ export async function POST(req: NextRequest) {
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {
-        const msg = describeGroqError(err);
+        const msg = describeAiError(err);
         controller.enqueue(encoder.encode(msg));
         full = msg;
-        console.error("Groq stream error", err);
+        console.error("AI stream error", err);
       } finally {
         await prisma.coachMessage.create({ data: { userId, role: "assistant", content: full, contextJson: contextSnapshot } });
         controller.close();

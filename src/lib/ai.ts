@@ -1,19 +1,38 @@
 import Groq from "groq-sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-let client: Groq | null = null;
+// Gemini is the primary provider when configured — Groq stays as a working
+// fallback (and for anyone who already had it running before Gemini
+// support existed) rather than a hard replacement. Never both at once: one
+// provider serves any given request, chosen once per call from whichever
+// key is present.
+type Provider = "gemini" | "groq";
 
-export function isAiEnabled() {
-  return !!process.env.GROQ_API_KEY;
+function activeProvider(): Provider | null {
+  if (process.env.GEMINI_API_KEY) return "gemini";
+  if (process.env.GROQ_API_KEY) return "groq";
+  return null;
 }
 
-function getClient() {
-  if (!process.env.GROQ_API_KEY) {
-    throw new Error("GROQ_API_KEY не задан. Получи бесплатный ключ на https://console.groq.com/keys и добавь его в .env");
-  }
-  if (!client) client = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  return client;
+export function isAiEnabled() {
+  return activeProvider() !== null;
+}
+
+let groqClient: Groq | null = null;
+function getGroqClient() {
+  if (!process.env.GROQ_API_KEY) throw new Error("GROQ_API_KEY не задан.");
+  if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groqClient;
+}
+
+let geminiClient: GoogleGenerativeAI | null = null;
+function getGeminiClient() {
+  if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY не задан.");
+  if (!geminiClient) geminiClient = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  return geminiClient;
 }
 
 // Every reply is grounded in a live snapshot of the athlete's own numbers
@@ -31,10 +50,10 @@ export const COACH_SYSTEM_PROMPT = `Ты — ИИ-тренер в приложе
 
 Твой стиль:
 - Пиши по-русски, тепло, но по делу — как опытный тренер, а не как чат-бот. Короткие абзацы, без воды.
-- ВСЕГДА опирайся на конкретные цифры атлета из контекста (восстановление, ВСР, пульс покоя, сон, пороги, тренировочная нагрузка, план) — не давай общих советов "в вакууме". Если данных не хватает для точного ответа — так и скажи, и объясни, каких данных не хватает.
+- ВСЕГДА опирайся на конкретные цифры атлета из контекста (восстановление, ВСР, пульс покоя, сон, пороги, тренировочная нагрузка, план, самочувствие) — не давай общих советов "в вакууме". Если данных не хватает для точного ответа — так и скажи, и объясни, каких данных не хватает.
 - Когда объясняешь решение (план тренировки, оценку восстановления, зоны) — раскладывай логику по шагам: какие входные данные, какое правило/формула, какой вывод. Атлет должен понимать "почему", а не просто получить ответ.
 - Не выдумывай медицинские диагнозы и не заменяй врача — при признаках травмы или болезни советуй обратиться к специалисту.
-- Учитывай не только тело, но и психологическое состояние: мотивацию, стресс, выгорание — если атлет упоминает это, отнесись серьёзно и по-человечески.
+- Учитывай не только тело, но и психологическое состояние: мотивацию, стресс, выгорание — если атлет упоминает это (в чате или в дневном самоотчёте), отнесись серьёзно и по-человечески.
 - Ответы по существу: 3-6 абзацев, если не попросили подробнее.`;
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -49,35 +68,80 @@ export function buildCoachContext(snapshot: Record<string, unknown>): string {
   return lines.length ? `Текущие данные атлета:\n${lines.join("\n")}` : "Данных об атлете пока нет — это новый профиль.";
 }
 
-export async function* streamCoachReply(history: ChatMessage[], contextSnapshot?: Record<string, unknown>) {
-  const groq = getClient();
-  const messages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: COACH_SYSTEM_PROMPT + (contextSnapshot ? `\n\n${buildCoachContext(contextSnapshot)}` : "") },
-    ...history,
-  ];
-
-  const stream = await groq.chat.completions.create({ model: MODEL, messages, temperature: 0.6, stream: true });
+async function* streamGroq(systemPrompt: string, history: ChatMessage[]) {
+  const groq = getGroqClient();
+  const messages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [{ role: "system", content: systemPrompt }, ...history];
+  const stream = await groq.chat.completions.create({ model: GROQ_MODEL, messages, temperature: 0.6, stream: true });
   for await (const chunk of stream) {
     const text = chunk.choices[0]?.delta?.content;
     if (text) yield text;
   }
 }
 
+async function* streamGemini(systemPrompt: string, history: ChatMessage[]) {
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: systemPrompt });
+  // Gemini's chat history is separate from the message being sent, and uses
+  // "model" (not "assistant") for the AI's turns.
+  const priorTurns = history.slice(0, -1).map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  const last = history.at(-1);
+  const chat = model.startChat({ history: priorTurns });
+  const result = await chat.sendMessageStream(last?.content ?? "");
+  for await (const chunk of result.stream) {
+    const text = chunk.text();
+    if (text) yield text;
+  }
+}
+
+export async function* streamCoachReply(history: ChatMessage[], contextSnapshot?: Record<string, unknown>) {
+  const provider = activeProvider();
+  if (!provider) throw new Error("Ни GEMINI_API_KEY, ни GROQ_API_KEY не заданы.");
+  const systemPrompt = COACH_SYSTEM_PROMPT + (contextSnapshot ? `\n\n${buildCoachContext(contextSnapshot)}` : "");
+  yield* provider === "gemini" ? streamGemini(systemPrompt, history) : streamGroq(systemPrompt, history);
+}
+
 export async function generateText(prompt: string, systemInstruction?: string) {
-  const groq = getClient();
+  const provider = activeProvider();
+  if (!provider) throw new Error("Ни GEMINI_API_KEY, ни GROQ_API_KEY не заданы.");
+  const system = systemInstruction ?? COACH_SYSTEM_PROMPT;
+
+  if (provider === "gemini") {
+    const genAI = getGeminiClient();
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL, systemInstruction: system });
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
+
+  const groq = getGroqClient();
   const res = await groq.chat.completions.create({
-    model: MODEL,
-    messages: [{ role: "system", content: systemInstruction ?? COACH_SYSTEM_PROMPT }, { role: "user", content: prompt }],
+    model: GROQ_MODEL,
+    messages: [{ role: "system", content: system }, { role: "user", content: prompt }],
     temperature: 0.5,
   });
   return res.choices[0]?.message?.content ?? "";
 }
 
+// Provider-agnostic error → user-facing message, for the streaming chat
+// route (which can't just let a raw SDK error reach the client).
+export function describeAiError(err: unknown): string {
+  if (err instanceof Groq.APIError) {
+    if (err.status === 401) return "Ключ GROQ_API_KEY недействителен. Проверь его в .env / Vercel и сделай redeploy.";
+    if (err.status === 404) return `Groq не нашёл модель "${GROQ_MODEL}" — проверь GROQ_MODEL.`;
+    if (err.status === 429) return "Groq вернул 429 — превышен лимит бесплатного тарифа. Попробуй через минуту.";
+    return `Groq вернул ошибку ${err.status ?? ""}: ${err.message}`;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (/API key not valid|API_KEY_INVALID/i.test(message)) return "Ключ GEMINI_API_KEY недействителен. Проверь его в .env / Vercel и сделай redeploy.";
+  if (/quota|rate limit|429/i.test(message)) return "Gemini вернул ошибку лимита запросов. Попробуй через минуту.";
+  if (message) return `Ошибка ИИ: ${message}`;
+  return "Не получилось получить ответ от ИИ. Попробуй ещё раз через минуту.";
+}
+
 // Turns a deterministic, rule-based explanation (from plan-engine.ts /
 // recovery.ts — always computed first, always the source of truth) into a
-// warmer, more personal couple of sentences for the Insight feed. If Groq
-// isn't configured, the deterministic reason is used as-is — the "why" is
-// never solely dependent on the LLM being available.
+// warmer, more personal couple of sentences for the Insight feed. If no AI
+// provider is configured, the deterministic reason is used as-is — the
+// "why" is never solely dependent on the LLM being available.
 export async function narrateInsight(params: {
   title: string;
   deterministicReason: string;
@@ -100,21 +164,22 @@ ${params.metrics ? `Данные: ${JSON.stringify(params.metrics)}` : ""}`;
 // The proactive "Coach's Take" shown at the top of the dashboard every
 // morning — unlike narrateInsight (which explains one specific change),
 // this synthesizes the whole day's picture (readiness + sleep + plan +
-// any anomaly flags) into one short, personal briefing, generated once and
-// cached (see engine.ts ensureDailyBriefing). Falls back to a plain
-// deterministic sentence if Groq isn't configured — the dashboard always
-// has *something* here, never a blank space waiting on the LLM.
+// self-reported wellness + any anomaly flags) into one short, personal
+// briefing, generated once and cached (see engine.ts ensureDailyBriefing).
+// Falls back to a plain deterministic sentence if no AI provider is
+// configured — the dashboard always has *something* here, never a blank
+// space waiting on the LLM.
 export async function generateDailyBriefing(context: Record<string, unknown>): Promise<string> {
   const fallback = `Готовность: ${context["готовность"] ?? "нет данных"}. План на сегодня: ${
     (context["план"] as { название?: string } | undefined)?.название ?? "отдых"
   }.`;
   if (!isAiEnabled()) return fallback;
   try {
-    const prompt = `Начни утро атлета с короткого личного брифинга тренера — 3-5 предложений, тепло и по делу, как будто тренер лично посмотрел на все его данные за ночь и говорит, что делать сегодня и почему. Не выдумывай цифр сверх приведённых, используй ровно эти данные.
+    const prompt = `Начни утро атлета с короткого личного брифинга тренера — 3-5 предложений, тепло и по делу, как будто тренер лично посмотрел на все его данные за ночь (включая самоотчёт о самочувствии, если он есть) и говорит, что делать сегодня и почему. Не выдумывай цифр сверх приведённых, используй ровно эти данные.
 
 ${buildCoachContext(context)}
 
-Если есть тревожные флаги (риск болезни/перетренированности) — упомяни их первыми и мягко, но ясно. Если всё хорошо — можно быть чуть более воодушевляющим. Не используй заголовки/списки, только связный текст.`;
+Если есть тревожные флаги (риск болезни/перетренированности) или самоотчёт указывает на высокую усталость/стресс — упомяни это первым и мягко, но ясно. Если всё хорошо — можно быть чуть более воодушевляющим. Не используй заголовки/списки, только связный текст.`;
     const text = await generateText(prompt);
     return text.trim() || fallback;
   } catch {
@@ -126,7 +191,7 @@ ${buildCoachContext(context)}
 // "Почему?" button next to any plan item / recovery score / threshold.
 export async function explainDecision(params: { question: string; contextSnapshot: Record<string, unknown> }): Promise<string> {
   if (!isAiEnabled()) {
-    return "ИИ-объяснение недоступно (не задан GROQ_API_KEY), но вот исходные данные решения:\n\n" + buildCoachContext(params.contextSnapshot);
+    return "ИИ-объяснение недоступно (не задан GEMINI_API_KEY или GROQ_API_KEY), но вот исходные данные решения:\n\n" + buildCoachContext(params.contextSnapshot);
   }
   const prompt = `Атлет спрашивает: "${params.question}"\n\n${buildCoachContext(params.contextSnapshot)}\n\nОтветь, опираясь строго на эти данные — объясни логику решения по шагам.`;
   return generateText(prompt);

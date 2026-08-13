@@ -305,7 +305,7 @@ async function extendPlanIfNeeded(userId: string, planId: string) {
   await prisma.planItem.createMany({ data: draft.map((d) => toPlanItemData(d, planId, userId)) });
 }
 
-export async function ensureTodayPlanItem(userId: string) {
+export async function ensureTodayPlanItem(userId: string, opts?: { force?: boolean }) {
   const plan = await ensureActivePlan(userId);
   if (!plan) return null;
   await extendPlanIfNeeded(userId, plan.id);
@@ -313,7 +313,8 @@ export async function ensureTodayPlanItem(userId: string) {
   const today = dateStr(new Date());
   let item = await prisma.planItem.findFirst({ where: { userId, planId: plan.id, date: new Date(today) } });
   if (!item) return null;
-  if (item.status !== "PLANNED" || item.adjustReason) return item; // already resolved or already adjusted today
+  if (item.status !== "PLANNED") return item; // already completed/skipped — never re-adjust after the fact
+  if (item.adjustReason && !opts?.force) return item; // already adjusted today, and nothing is asking for a re-check
 
   const metric = await prisma.dailyMetric.findUnique({ where: { userId_date: { userId, date: new Date(today) } } });
   const loads = await getDailyLoadSeries(userId, today);
@@ -325,6 +326,8 @@ export async function ensureTodayPlanItem(userId: string) {
     topRecoveryNote: (metric?.recoveryBreakdown as Array<{ note: string }> | null)?.[0]?.note ?? null,
     acwrRisk: acwr.risk, acwrRatio: acwr.ratio,
     sleepDebtHours: metric?.sleepDebtSec != null ? metric.sleepDebtSec / 3600 : null,
+    subjectiveSoreness: metric?.subjectiveSoreness ?? null,
+    subjectiveStress: metric?.subjectiveStress ?? null,
   };
 
   const draftItem: DraftPlanItem = {
@@ -445,6 +448,10 @@ export async function ensureDailyBriefing(userId: string, date: string) {
     готовность: existing?.recoveryScore != null ? `${existing.recoveryScore}/100` : "нет данных",
     сон_часов: existing?.sleepDurationSec ? Math.round((existing.sleepDurationSec / 3600) * 10) / 10 : null,
     нагрузка_сегодня: existing?.strain,
+    самочувствие_энергия: existing?.subjectiveEnergy != null ? `${existing.subjectiveEnergy}/5` : null,
+    самочувствие_мышечная_усталость: existing?.subjectiveSoreness != null ? `${existing.subjectiveSoreness}/5` : null,
+    самочувствие_стресс: existing?.subjectiveStress != null ? `${existing.subjectiveStress}/5` : null,
+    самочувствие_заметка: existing?.subjectiveNote ?? null,
     план: planItem ? { название: planItem.title, тип: planItem.targetType, причина: planItem.adjustReason ?? planItem.explanation } : null,
     тревожные_флаги: warnings.length ? warnings.map((w) => w.title) : null,
   };

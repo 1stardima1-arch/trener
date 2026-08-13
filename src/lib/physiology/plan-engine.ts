@@ -217,6 +217,14 @@ export type ReadinessContext = {
   acwrRisk: "LOW" | "MODERATE" | "HIGH" | "UNDERTRAINED" | null;
   acwrRatio: number | null;
   sleepDebtHours: number | null;
+  // 1-5 self-report (WHOOP Journal / Garmin-style) — deliberately not folded
+  // into recoveryScore itself (see the DailyMetric schema comment), but
+  // still allowed to downgrade today's session: an athlete who reports
+  // heavy soreness or stress can be right in a way HRV/RHR haven't caught
+  // up to yet (next night's readings will reflect it; today's plan
+  // shouldn't wait for that).
+  subjectiveSoreness: number | null;
+  subjectiveStress: number | null;
 };
 
 export type AdjustmentResult = { changed: boolean; item: DraftPlanItem; reason: string | null };
@@ -236,6 +244,14 @@ export function adjustForReadiness(planned: DraftPlanItem, ctx: ReadinessContext
       changed: true,
       reason: `Соотношение острой/хронической нагрузки (ACWR) сейчас ${ctx.acwrRatio} — это зона повышенного риска травмы (Gabbett, 2016). Сегодняшняя тяжёлая тренировка заменена на лёгкую, чтобы не рисковать.`,
       item: downgrade(planned, "Лёгкая аэробная (замена из-за риска перегрузки)"),
+    };
+  }
+
+  if (ctx.subjectiveSoreness != null && ctx.subjectiveSoreness >= 4 && ctx.subjectiveStress != null && ctx.subjectiveStress >= 4 && HARD_TYPES.includes(planned.targetType)) {
+    return {
+      changed: true,
+      reason: `По самоотчёту сегодня высокая мышечная усталость и стресс (${ctx.subjectiveSoreness}/5 и ${ctx.subjectiveStress}/5) — это не всегда сразу видно по ВСР и пульсу покоя, но игнорировать такое сочетание рискованно. Тяжёлая тренировка заменена на лёгкую.`,
+      item: downgrade(planned, "Лёгкая аэробная (по самочувствию)"),
     };
   }
 

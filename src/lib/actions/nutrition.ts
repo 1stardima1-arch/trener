@@ -27,7 +27,7 @@ export async function logNutritionEntry(input: { mealName: string; description: 
 export async function suggestMeals(targets: { kcal: number; proteinG: number; carbsG: number; fatG: number; carbLoad: string }): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
-  if (!isAiEnabled()) return { ok: false, error: "ИИ не настроен (нужен GROQ_API_KEY)." };
+  if (!isAiEnabled()) return { ok: false, error: "ИИ не настроен (нужен GEMINI_API_KEY или GROQ_API_KEY)." };
 
   const profile = await prisma.athleteProfile.findUnique({ where: { userId: session.user.id } });
   const prompt = `Составь пример меню на сегодня (3-4 приёма пищи) для спортсмена (${profile ? sportLabel(profile.primarySport) : "выносливость"}) под цели: ${targets.kcal} ккал, белки ${targets.proteinG} г, углеводы ${targets.carbsG} г (уровень нагрузки углеводами: ${targets.carbLoad}), жиры ${targets.fatG} г.
