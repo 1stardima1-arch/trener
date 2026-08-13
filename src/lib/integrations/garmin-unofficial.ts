@@ -156,7 +156,23 @@ export async function garminSsoLogin(email: string, password: string): Promise<G
   const postHtml = await postRes.text();
   const ticketMatch = postHtml.match(/ticket=([\w-]+)/);
   if (!ticketMatch) {
-    throw new Error("Garmin: вход не удался — проверь логин/пароль. Если они верны, у аккаунта может быть включена двухфакторная защита (пока не поддерживается неофициальной синхронизацией).");
+    // Distinguish the known failure modes instead of guessing "wrong
+    // password" for all of them — each needs a genuinely different fix
+    // (nothing to do here for MFA vs. a real regex update for a changed
+    // page), and this is the one path in the whole flow this project has
+    // no way to test without a real Garmin account, so the error itself
+    // has to carry enough of the actual response to diagnose from.
+    const lower = postHtml.toLowerCase();
+    if (lower.includes("mfa") || lower.includes("verification code") || lower.includes("двухфактор")) {
+      throw new Error("Garmin: аккаунт запросил код двухфакторной аутентификации — это пока не поддерживается неофициальной синхронизацией. Временно отключи двухфакторную защиту в настройках Garmin Connect, если хочешь использовать эту синхронизацию, либо используй выгрузку .fit-файлов вместо неё.");
+    }
+    if (lower.includes("invalid") || lower.includes("incorrect") || lower.includes("неверн")) {
+      throw new Error("Garmin: неверный логин или пароль (это подтверждённый ответ от Garmin, не догадка).");
+    }
+    const snippet = postHtml.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[email]").slice(0, 220).replace(/\s+/g, " ").trim();
+    throw new Error(
+      `Garmin: не нашли билет входа в ответе (HTTP ${postRes.status}, Content-Type: ${postRes.headers.get("content-type") ?? "?"}). Похоже, Garmin изменил страницу входа — вот начало ответа для диагностики: "${snippet}"`
+    );
   }
   const ticket = ticketMatch[1];
 
