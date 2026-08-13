@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureDailyMetricRow, computeAndSaveDailyMetric, ensureTodayPlanItem, ensureDailyBriefing } from "@/lib/engine";
-import { runPolarSyncForUser, runAthyxSyncForUser } from "@/lib/actions/devices";
+import { runPolarSyncForUser, runAthyxSyncForUser, runGarminSyncForUser } from "@/lib/actions/devices";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -30,6 +30,7 @@ export async function GET(req: NextRequest) {
       try {
         if (c.provider === "POLAR") await runPolarSyncForUser(userId);
         if (c.provider === "ATHYX") await runAthyxSyncForUser(userId);
+        if (c.provider === "GARMIN_CONNECT") await runGarminSyncForUser(userId);
       } catch (e) {
         console.error(`cron sync failed for ${userId}/${c.provider}`, e);
       }

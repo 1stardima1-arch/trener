@@ -152,10 +152,8 @@ export async function connectGarminUnofficial(email: string, password: string): 
   return { ok: true };
 }
 
-export async function syncGarminUnofficial(): Promise<ActionResult> {
-  const session = await auth();
-  if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
-  const conn = await prisma.deviceConnection.findUnique({ where: { userId_provider: { userId: session.user.id, provider: "GARMIN_CONNECT" } } });
+export async function runGarminSyncForUser(userId: string): Promise<ActionResult> {
+  const conn = await prisma.deviceConnection.findUnique({ where: { userId_provider: { userId, provider: "GARMIN_CONNECT" } } });
   if (!conn?.secretEnc) return { ok: false, error: "Garmin не подключён." };
 
   try {
@@ -163,7 +161,7 @@ export async function syncGarminUnofficial(): Promise<ActionResult> {
     const oauth2 = await garminExchangeOAuth2(oauth1);
     const activities = await listRecentGarminActivities(oauth2.accessToken, 20);
     for (const a of activities) {
-      await ingestActivity(session.user.id, "GARMIN_CONNECT" as DataSource, {
+      await ingestActivity(userId, "GARMIN_CONNECT" as DataSource, {
         externalId: String(a.activityId), sport: mapGarminSport(a.activityType), startedAt: new Date(a.startTimeLocal),
         durationSec: a.durationSec, distanceM: a.distanceM, avgHr: a.averageHR, maxHr: a.maxHR, calories: a.calories,
         avgPaceSecPerKm: a.averageSpeedMps ? 1000 / a.averageSpeedMps : null,
@@ -176,9 +174,16 @@ export async function syncGarminUnofficial(): Promise<ActionResult> {
     return { ok: false, error };
   }
 
+  return { ok: true };
+}
+
+export async function syncGarminUnofficial(): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
+  const result = await runGarminSyncForUser(session.user.id);
   revalidatePath("/app/devices");
   revalidatePath("/app");
-  return { ok: true };
+  return result;
 }
 
 // ---------------- Shared ----------------
