@@ -15,27 +15,39 @@
 // used against connectapi.garmin.com. Garmin's own mobile app authenticates
 // the exact same way; we're just doing what the app does.
 //
-// GARMIN_CONSUMER_KEY / GARMIN_CONSUMER_SECRET are the OAuth1 consumer
-// credentials Garmin Connect Mobile itself uses — publicly known and
-// published by the open-source clients above (search their source for
-// "CONSUMER_KEY" and copy the current values), deliberately NOT hardcoded
-// here since Garmin has rotated them before and a stale baked-in value
-// would fail silently instead of via a clear "not configured" error.
-
+// The OAuth1 consumer credentials Garmin Connect Mobile itself uses aren't
+// meant to be hand-copied into an env var: every open-source client in this
+// space (garth, python-garminconnect, ...) fetches them live from a public
+// endpoint Garmin's own ecosystem tooling publishes them at, specifically
+// so a rotation doesn't silently break every downstream project at once.
+// GARMIN_CONSUMER_KEY / GARMIN_CONSUMER_SECRET still work as an optional
+// override (e.g. to pin a known-good pair, or if this endpoint ever goes
+// away), but requiring them was a mistake — that's the literal error this
+// comment used to cause. Cached in-memory for the life of the server
+// process; a bad cached value just means "reconnect Garmin" clears it via
+// a fresh cold start, not a stuck app.
 import crypto from "node:crypto";
 
 const SSO_BASE = "https://sso.garmin.com/sso";
 const CONNECT_API = "https://connectapi.garmin.com";
+const CONSUMER_CREDS_URL = "https://thegarth.s3.amazonaws.com/oauth_consumer.json";
 
-function consumerCreds() {
-  const key = process.env.GARMIN_CONSUMER_KEY;
-  const secret = process.env.GARMIN_CONSUMER_SECRET;
-  if (!key || !secret) {
-    throw new Error(
-      "GARMIN_CONSUMER_KEY / GARMIN_CONSUMER_SECRET не заданы — неофициальная синхронизация с Garmin отключена (см. README)."
-    );
+let cachedConsumerCreds: { key: string; secret: string } | null = null;
+
+async function consumerCreds(): Promise<{ key: string; secret: string }> {
+  if (process.env.GARMIN_CONSUMER_KEY && process.env.GARMIN_CONSUMER_SECRET) {
+    return { key: process.env.GARMIN_CONSUMER_KEY, secret: process.env.GARMIN_CONSUMER_SECRET };
   }
-  return { key, secret };
+  if (cachedConsumerCreds) return cachedConsumerCreds;
+
+  const res = await fetch(CONSUMER_CREDS_URL);
+  if (!res.ok) throw new Error(`Garmin: не удалось получить OAuth1-ключи (${CONSUMER_CREDS_URL} → ${res.status}).`);
+  const json = (await res.json()) as { consumer_key?: string; consumer_secret?: string };
+  if (!json.consumer_key || !json.consumer_secret) {
+    throw new Error("Garmin: ответ с OAuth1-ключами пуст или изменил формат.");
+  }
+  cachedConsumerCreds = { key: json.consumer_key, secret: json.consumer_secret };
+  return cachedConsumerCreds;
 }
 
 function oauth1Header(
@@ -90,7 +102,7 @@ export type GarminOAuth1Token = { key: string; secret: string };
 // ever persisted (encrypted) — the password is used once in-memory here and
 // never written to the database or logs.
 export async function garminSsoLogin(email: string, password: string): Promise<GarminOAuth1Token> {
-  const consumer = consumerCreds();
+  const consumer = await consumerCreds();
   const jar: CookieJar = new Map();
 
   const qs = new URLSearchParams({
@@ -166,7 +178,7 @@ export type GarminOAuth2Token = { accessToken: string; refreshToken: string; exp
 // Step 3: long-lived OAuth1 token → short-lived OAuth2 bearer token, used
 // for every actual data call against connectapi.garmin.com.
 export async function garminExchangeOAuth2(oauth1: GarminOAuth1Token): Promise<GarminOAuth2Token> {
-  const consumer = consumerCreds();
+  const consumer = await consumerCreds();
   const url = `${CONNECT_API}/oauth-service/oauth/exchange/user/2.0`;
   const authHeader = oauth1Header("POST", url, consumer, oauth1);
   const res = await fetch(url, { method: "POST", headers: { Authorization: authHeader, "User-Agent": "Mozilla/5.0" } });
