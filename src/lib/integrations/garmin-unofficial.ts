@@ -32,6 +32,23 @@ const SSO_BASE = "https://sso.garmin.com/sso";
 const CONNECT_API = "https://connectapi.garmin.com";
 const CONSUMER_CREDS_URL = "https://thegarth.s3.amazonaws.com/oauth_consumer.json";
 
+// A bare "Mozilla/5.0" User-Agent (what this file sent before) is itself a
+// bot signal — no real browser has ever sent that alone. Garmin's SSO sits
+// behind bot-management (the 403 + IE-conditional-comment HTML boilerplate
+// a real user hit here is a textbook challenge-page fingerprint, not an
+// actual login response), so every request now goes out with a full,
+// current desktop Chrome header set instead. This raises the odds of
+// getting a real response but can't guarantee it — fetch() can't replicate
+// TLS/JA3 fingerprinting or execute a JS challenge, which is the other
+// half of what bot-management usually checks, and if Garmin is blocking by
+// IP/ASN reputation (Vercel's serverless ranges are exactly the kind of
+// datacenter IPs that get flagged), no request header fixes that.
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+};
+
 let cachedConsumerCreds: { key: string; secret: string } | null = null;
 
 async function consumerCreds(): Promise<{ key: string; secret: string }> {
@@ -136,7 +153,7 @@ export async function garminSsoLogin(email: string, password: string): Promise<G
   });
 
   const signinUrl = `${SSO_BASE}/signin?${qs.toString()}`;
-  const getRes = await fetch(signinUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const getRes = await fetch(signinUrl, { headers: BROWSER_HEADERS });
   applyCookies(jar, getRes);
   const html = await getRes.text();
   const csrfMatch = html.match(/name="_csrf"\s+value="([^"]+)"/);
@@ -146,9 +163,11 @@ export async function garminSsoLogin(email: string, password: string): Promise<G
     method: "POST",
     redirect: "manual",
     headers: {
+      ...BROWSER_HEADERS,
       "Content-Type": "application/x-www-form-urlencoded",
       Cookie: cookieHeader(jar),
-      "User-Agent": "Mozilla/5.0",
+      Referer: signinUrl,
+      Origin: "https://sso.garmin.com",
     },
     body: new URLSearchParams({ username: email, password, embed: "false", _csrf: csrfMatch[1] }),
   });
@@ -169,6 +188,9 @@ export async function garminSsoLogin(email: string, password: string): Promise<G
     if (lower.includes("invalid") || lower.includes("incorrect") || lower.includes("неверн")) {
       throw new Error("Garmin: неверный логин или пароль (это подтверждённый ответ от Garmin, не догадка).");
     }
+    if (postRes.status === 403 && lower.includes("<!--[if lt ie 7]")) {
+      throw new Error("Garmin: запрос заблокирован защитой от ботов (HTTP 403, страница-заглушка вместо формы входа) — это не связано с логином/паролем. Такое блокирует по IP облачных серверов, а не по содержимому запроса, так что переподбором заголовков это не всегда обходится. Пока используй выгрузку .fit-файлов на странице «Тренировки» — она не зависит от этого входа вообще.");
+    }
     const snippet = postHtml.replace(new RegExp(email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), "[email]").slice(0, 220).replace(/\s+/g, " ").trim();
     throw new Error(
       `Garmin: не нашли билет входа в ответе (HTTP ${postRes.status}, Content-Type: ${postRes.headers.get("content-type") ?? "?"}). Похоже, Garmin изменил страницу входа — вот начало ответа для диагностики: "${snippet}"`
@@ -178,7 +200,7 @@ export async function garminSsoLogin(email: string, password: string): Promise<G
 
   const preauthUrl = `${CONNECT_API}/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https://sso.garmin.com/sso/embed&accepts-mfa-tokens=true`;
   const authHeader = oauth1Header("GET", preauthUrl, consumer);
-  const tokenRes = await fetch(preauthUrl, { headers: { Authorization: authHeader, "User-Agent": "Mozilla/5.0" } });
+  const tokenRes = await fetch(preauthUrl, { headers: { ...BROWSER_HEADERS, Authorization: authHeader } });
   if (!tokenRes.ok) throw new Error(`Garmin: обмен билета на токен не удался (${tokenRes.status}).`);
   const body = await tokenRes.text();
   const params = new URLSearchParams(body);
@@ -197,7 +219,7 @@ export async function garminExchangeOAuth2(oauth1: GarminOAuth1Token): Promise<G
   const consumer = await consumerCreds();
   const url = `${CONNECT_API}/oauth-service/oauth/exchange/user/2.0`;
   const authHeader = oauth1Header("POST", url, consumer, oauth1);
-  const res = await fetch(url, { method: "POST", headers: { Authorization: authHeader, "User-Agent": "Mozilla/5.0" } });
+  const res = await fetch(url, { method: "POST", headers: { ...BROWSER_HEADERS, Authorization: authHeader } });
   if (!res.ok) throw new Error(`Garmin: обмен на OAuth2-токен не удался (${res.status}). Возможно, срок действия входа истёк — переподключи Garmin.`);
   const json = await res.json();
   return {
@@ -222,7 +244,7 @@ export type GarminActivitySummary = {
 
 async function connectApiGet(path: string, accessToken: string) {
   const res = await fetch(`${CONNECT_API}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}`, "di-backend": "connectapi.garmin.com", "User-Agent": "Mozilla/5.0" },
+    headers: { ...BROWSER_HEADERS, Authorization: `Bearer ${accessToken}`, "di-backend": "connectapi.garmin.com" },
   });
   if (!res.ok) throw new Error(`Garmin Connect API ${path} → ${res.status}`);
   return res.json();
