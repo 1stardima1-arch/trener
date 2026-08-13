@@ -163,6 +163,7 @@ enum DataSource {
   FIT_FILE
   POLAR
   ATHYX
+  STRAVA
   MANUAL
   OTHER
 }

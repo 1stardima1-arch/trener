@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CheckCircle2, XCircle, RefreshCw, Unlink } from "lucide-react";
-import { connectAthyx, syncAthyx, connectGarminUnofficial, syncGarminUnofficial, disconnectDevice } from "@/lib/actions/devices";
+import { connectAthyx, syncAthyx, syncStravaNow, connectGarminUnofficial, syncGarminUnofficial, disconnectDevice } from "@/lib/actions/devices";
 import { cn } from "@/lib/utils";
 import type { DataSource } from "@prisma/client";
 
@@ -74,6 +74,38 @@ export function PolarCard({ conn }: { conn: ConnState }) {
             <button
               disabled={isPending}
               onClick={() => startTransition(() => { disconnectDevice("POLAR" as DataSource); })}
+              className="press-spring flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold text-(--color-brand-pink) dark:bg-white/10"
+            >
+              <Unlink className="h-3 w-3" /> Отключить
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function StravaCard({ conn }: { conn: ConnState }) {
+  const [isPending, startTransition] = useTransition();
+  return (
+    <div className="card-surface p-5">
+      <div className="flex items-center justify-between">
+        <div className="font-bold">Strava</div>
+        <span className="rounded-full bg-(--color-brand-green)/15 px-2 py-0.5 text-[0.65rem] font-bold text-(--color-brand-green)">Официальный OAuth2</span>
+      </div>
+      <p className="mt-1 text-xs text-(--color-ink-soft)">
+        Рекомендуем для Garmin: если в твоих часах включена автозагрузка в Strava, тренировки попадут сюда официальным путём — без входа в сам Garmin.
+      </p>
+      <StatusLine conn={conn} />
+      <div className="mt-3 flex gap-2">
+        {!conn ? (
+          <a href="/api/devices/strava/authorize" className="press-spring rounded-full btn-gradient px-4 py-2 text-xs font-bold">Подключить через Strava</a>
+        ) : (
+          <>
+            <button disabled={isPending} onClick={() => startTransition(() => { syncStravaNow(); })} className="press-spring flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold dark:bg-white/10"><RefreshCw className="h-3 w-3" /> Синхронизировать</button>
+            <button
+              disabled={isPending}
+              onClick={() => startTransition(() => { disconnectDevice("STRAVA" as DataSource); })}
               className="press-spring flex items-center gap-1 rounded-full bg-black/5 px-3 py-1.5 text-xs font-bold text-(--color-brand-pink) dark:bg-white/10"
             >
               <Unlink className="h-3 w-3" /> Отключить

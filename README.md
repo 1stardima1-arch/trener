@@ -123,6 +123,19 @@ npm run dev
    `<домен>/api/devices/polar/webhook` в том же кабинете и добавь
    `POLAR_WEBHOOK_SIGNATURE_SECRET` в `.env`.
 
+### Strava — официальный OAuth2, рекомендуемый путь для Garmin
+
+1. Зайди на **[strava.com/settings/api](https://www.strava.com/settings/api)** и создай
+   приложение — бесплатно, самостоятельно, без одобрения от Strava.
+2. Authorization Callback Domain: домен без протокола (например `trener-blue.vercel.app`).
+3. В `.env`: `STRAVA_CLIENT_ID` и `STRAVA_CLIENT_SECRET`.
+4. На странице «Устройства» атлет жмёт «Подключить через Strava».
+
+Это рекомендуемый способ получить данные с Garmin: у Garmin и Strava есть настоящая
+официальная интеграция — если в часах включена автозагрузка в Strava (обычная настройка
+для владельцев Garmin), тренировки попадают сюда полностью официальным путём, без входа
+в сам Garmin Connect и без риска попасть под защиту от ботов (см. ниже).
+
 ### Garmin — открытый разбор .fit (работает всегда) + неофициальная синхронизация (опционально)
 
 Официальный **Garmin Connect Developer Program** сейчас (2026) закрыт для новых заявок —

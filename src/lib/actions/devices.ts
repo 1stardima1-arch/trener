@@ -8,6 +8,7 @@ import { verifyAthyxKey, listAthyxSessions, type AthyxSession } from "@/lib/inte
 import { parseFitFile } from "@/lib/integrations/fit";
 import { garminSsoLogin, garminExchangeOAuth2, listRecentGarminActivities, mapGarminSport } from "@/lib/integrations/garmin-unofficial";
 import { syncNewExercises, isoDurationToSec } from "@/lib/integrations/polar";
+import { listRecentStravaActivities, mapStravaSport, refreshStravaToken } from "@/lib/integrations/strava";
 import { ingestActivity } from "@/lib/engine";
 import type { DataSource } from "@prisma/client";
 
@@ -126,6 +127,59 @@ export async function syncPolarNow(): Promise<ActionResult> {
 // intentionally not wired into ingestion yet, since Polar's documented
 // sample payload shape isn't pinned down precisely enough here to trust an
 // unverified field mapping over simply not doing it.
+
+// ---------------- Strava (real OAuth2) ----------------
+//
+// The recommended path for Garmin data over the unofficial Garmin login
+// below: most Garmin devices can auto-upload to Strava (a real, official
+// Garmin↔Strava integration Garmin itself maintains), so an athlete who
+// already has that turned on gets their Garmin activities here through a
+// fully sanctioned OAuth2 flow — no scraping, no bot detection, no ToS risk.
+
+export async function runStravaSyncForUser(userId: string): Promise<ActionResult> {
+  const conn = await prisma.deviceConnection.findUnique({ where: { userId_provider: { userId, provider: "STRAVA" } } });
+  if (!conn?.accessTokenEnc || !conn.refreshTokenEnc) return { ok: false, error: "Strava не подключён." };
+
+  try {
+    let accessToken = decryptSecret(conn.accessTokenEnc);
+    // Strava access tokens expire after 6 hours — refresh proactively
+    // whenever we're within 5 minutes of that instead of waiting for a 401.
+    if (!conn.tokenExpiresAt || conn.tokenExpiresAt.getTime() < Date.now() + 5 * 60 * 1000) {
+      const refreshed = await refreshStravaToken(decryptSecret(conn.refreshTokenEnc));
+      accessToken = refreshed.accessToken;
+      await prisma.deviceConnection.update({
+        where: { id: conn.id },
+        data: { accessTokenEnc: encryptSecret(refreshed.accessToken), refreshTokenEnc: encryptSecret(refreshed.refreshToken), tokenExpiresAt: new Date(refreshed.expiresAt) },
+      });
+    }
+
+    const sinceUnix = conn.lastSyncedAt ? Math.floor(conn.lastSyncedAt.getTime() / 1000) - 86400 : undefined; // 1-day overlap, dedup is by externalId
+    const activities = await listRecentStravaActivities(accessToken, sinceUnix);
+    for (const a of activities) {
+      await ingestActivity(userId, "STRAVA" as DataSource, {
+        externalId: String(a.id), sport: mapStravaSport(a.type), startedAt: new Date(a.startDateLocal),
+        durationSec: a.durationSec, distanceM: a.distanceM, avgHr: a.avgHr, maxHr: a.maxHr, calories: a.calories,
+        avgPaceSecPerKm: a.avgSpeedMps ? 1000 / a.avgSpeedMps : null,
+      });
+    }
+    await prisma.deviceConnection.update({ where: { id: conn.id }, data: { lastSyncedAt: new Date(), lastSyncStatus: `Загружено тренировок: ${activities.length}`, lastSyncError: null, status: "CONNECTED" } });
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Неизвестная ошибка синхронизации Strava.";
+    await prisma.deviceConnection.update({ where: { id: conn.id }, data: { lastSyncError: error, status: "ERROR" } });
+    return { ok: false, error };
+  }
+
+  return { ok: true };
+}
+
+export async function syncStravaNow(): Promise<ActionResult> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "Нужно войти в аккаунт." };
+  const result = await runStravaSyncForUser(session.user.id);
+  revalidatePath("/app/devices");
+  revalidatePath("/app");
+  return result;
+}
 
 // ---------------- Garmin (unofficial, opt-in) ----------------
 

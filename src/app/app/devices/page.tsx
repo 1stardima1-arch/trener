@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { AthyxCard, PolarCard, GarminCard } from "@/components/app/device-cards";
+import { AthyxCard, PolarCard, StravaCard, GarminCard } from "@/components/app/device-cards";
 import { LogLactateForm } from "@/components/app/log-lactate-form";
 import { Watch, Upload } from "lucide-react";
 import Link from "next/link";
@@ -19,6 +19,7 @@ export default async function DevicesPage() {
       <p className="mt-1 text-(--color-ink-soft)">Подключи гаджеты — пороги, VO2max и тенденция определятся автоматически, независимо от модели.</p>
 
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+        <StravaCard conn={byProvider.STRAVA ?? null} />
         <AthyxCard conn={byProvider.ATHYX ?? null} />
         <PolarCard conn={byProvider.POLAR ?? null} />
         <GarminCard conn={byProvider.GARMIN_CONNECT ?? null} enabled={process.env.ENABLE_GARMIN_UNOFFICIAL_SYNC === "true"} />
