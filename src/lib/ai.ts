@@ -4,16 +4,15 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
-// Gemini is the primary provider when configured — Groq stays as a working
-// fallback (and for anyone who already had it running before Gemini
-// support existed) rather than a hard replacement. Never both at once: one
-// provider serves any given request, chosen once per call from whichever
-// key is present.
+// Groq is primary — that's the key actually configured and working.
+// Gemini stays available as a fallback if GROQ_API_KEY isn't set. Never
+// both at once: one provider serves any given request, chosen once per
+// call from whichever key is present.
 type Provider = "gemini" | "groq";
 
 function activeProvider(): Provider | null {
-  if (process.env.GEMINI_API_KEY) return "gemini";
   if (process.env.GROQ_API_KEY) return "groq";
+  if (process.env.GEMINI_API_KEY) return "gemini";
   return null;
 }
 
