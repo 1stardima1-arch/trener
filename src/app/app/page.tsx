@@ -9,6 +9,9 @@ import { Ring } from "@/components/app/rings";
 import { recoveryColor, recoveryBand } from "@/lib/recovery-color";
 import { AskCoachBar } from "@/components/app/ask-coach-bar";
 import { DailyCheckIn } from "@/components/app/daily-checkin";
+import { RecoveryInfoButton } from "@/components/app/recovery-breakdown";
+import type { RecoveryFactor } from "@/lib/physiology/recovery";
+import { activeAiProviderLabel } from "@/lib/ai";
 import { ChevronLeft, ChevronRight, Moon, Dumbbell, Apple, Activity as ActivityIcon, Zap, Plus, CheckCircle2, AlertTriangle, Sparkles } from "lucide-react";
 
 function toDateStr(d: Date) {
@@ -67,6 +70,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const yesterdaySleepHours = yesterdayMetric?.sleepDurationSec ? Math.round((yesterdayMetric.sleepDurationSec / 3600) * 10) / 10 : null;
   const dateLabel = isToday ? "СЕГОДНЯ" : new Date(date).toLocaleDateString("ru-RU", { weekday: "short", day: "numeric", month: "short" }).toUpperCase();
   const band = recoveryBand(metric?.recoveryScore);
+  const aiProvider = activeAiProviderLabel();
 
   return (
     <div>
@@ -106,7 +110,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <div className="relative z-10 flex items-start gap-3">
             <span className="siri-orb mt-0.5 h-8 w-8 shrink-0" />
             <div>
-              <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/50"><Sparkles className="h-3 w-3" /> Слово тренера</div>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-white/50"><Sparkles className="h-3 w-3" /> Слово тренера</div>
+                {aiProvider && <span className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[0.6rem] font-bold text-white/60">{aiProvider}</span>}
+              </div>
               <p className="mt-1.5 text-sm leading-relaxed text-white/90">{briefing}</p>
             </div>
           </div>
@@ -118,8 +125,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <Ring value={sleepHours ?? 0} max={profile.sleepGoalHours} size={96} strokeWidth={9} color="var(--color-brand-slate)" label={sleepHours != null ? `${sleepHours}ч` : "—"} deltaVsYesterday={sleepHours != null && yesterdaySleepHours != null ? sleepHours - yesterdaySleepHours : null} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Сон</span>
         </div>
-        <div className="flex flex-col items-center gap-1.5">
+        <div className="relative flex flex-col items-center gap-1.5">
           <Ring value={metric?.recoveryScore ?? 0} size={140} strokeWidth={13} color={recoveryColor(metric?.recoveryScore)} label={metric?.recoveryScore != null ? `${metric.recoveryScore}%` : "—"} glow={band === "HIGH"} deltaVsYesterday={metric?.recoveryScore != null && yesterdayMetric?.recoveryScore != null ? metric.recoveryScore - yesterdayMetric.recoveryScore : null} />
+          <RecoveryInfoButton breakdown={metric?.recoveryBreakdown as RecoveryFactor[] | null} score={metric?.recoveryScore ?? null} />
           <span className="text-[0.65rem] font-bold uppercase tracking-wide text-(--color-ink-soft)">Восстановление</span>
         </div>
         <div className="flex flex-col items-center gap-1.5">
